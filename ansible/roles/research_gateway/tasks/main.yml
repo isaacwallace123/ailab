@@ -1,0 +1,200 @@
+---
+- name: Require the controlled research-gateway inputs
+  ansible.builtin.assert:
+    that:
+      - ailab_research_gateway_api_key is defined
+      - ailab_research_gateway_api_key | length >= 40
+      - ailab_docling_api_key is defined
+      - ailab_docling_api_key | length >= 40
+      - ailab_research_gateway_port | int > 1024
+    fail_msg: The research gateway requires strong persistent gateway and Docling credentials.
+  no_log: true
+
+- name: Create the research-gateway installation directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: ailab
+    mode: "0750"
+  loop:
+    - "{{ ailab_research_gateway_root }}"
+    - "{{ ailab_research_gateway_root }}/source"
+
+- name: Install the reviewed research-gateway source
+  ansible.builtin.copy:
+    src: "{{ playbook_dir | dirname | dirname }}/services/research-gateway/"
+    dest: "{{ ailab_research_gateway_root }}/source/"
+    owner: root
+    group: ailab
+    mode: preserve
+  register: ailab_research_gateway_source
+
+- name: Install the root-owned research-gateway environment
+  ansible.builtin.template:
+    src: gateway.env.j2
+    dest: "{{ ailab_research_gateway_root }}/gateway.env"
+    owner: root
+    group: ailab
+    mode: "0640"
+  register: ailab_research_gateway_environment
+  no_log: true
+
+- name: Install the research-gateway Compose definition
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ ailab_research_gateway_root }}/compose.yaml"
+    owner: root
+    group: ailab
+    mode: "0640"
+  register: ailab_research_gateway_compose
+
+- name: Validate the rendered research-gateway Compose definition
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_research_gateway_root }}"
+      - config
+      - --quiet
+  changed_when: false
+
+- name: Build the reviewed research-gateway image
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_research_gateway_root }}"
+      - build
+      - --pull
+  register: ailab_research_gateway_build
+  changed_when: >-
+    'exporting to image' in ailab_research_gateway_build.stdout or
+    'exporting to image' in ailab_research_gateway_build.stderr
+
+- name: Start the private research gateway
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_research_gateway_root }}"
+      - up
+      - -d
+      - --remove-orphans
+  register: ailab_research_gateway_start
+  changed_when: >-
+    'Started' in ailab_research_gateway_start.stderr or
+    'Created' in ailab_research_gateway_start.stderr or
+    'Recreated' in ailab_research_gateway_start.stderr
+
+- name: Wait for the research-gateway health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_research_gateway_port }}/health"
+    method: GET
+    status_code: 200
+  register: ailab_research_gateway_health
+  retries: 30
+  delay: 2
+  until: ailab_research_gateway_health.status == 200
+  changed_when: false
+
+- name: Require authentication on controlled retrieval
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_research_gateway_port }}/v1/fetch"
+    method: POST
+    body_format: json
+    body:
+      url: https://example.com/
+    status_code: 401
+  changed_when: false
+
+- name: Require private and loopback destinations to be rejected
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_research_gateway_port }}/v1/fetch"
+    method: POST
+    headers:
+      X-Api-Key: "{{ ailab_research_gateway_api_key }}"
+    body_format: json
+    body:
+      url: "http://127.0.0.1:{{ ailab_docling_port }}/version"
+    status_code: 400
+  changed_when: false
+  no_log: true
+
+- name: Exercise authenticated public retrieval
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_research_gateway_port }}/v1/fetch"
+    method: POST
+    headers:
+      X-Api-Key: "{{ ailab_research_gateway_api_key }}"
+    body_format: json
+    body:
+      url: https://example.com/
+    status_code: 200
+    return_content: true
+    timeout: 60
+  register: ailab_research_gateway_fetch
+  retries: 3
+  delay: 2
+  until: >-
+    ailab_research_gateway_fetch.status == 200 and
+    'Example Domain' in ailab_research_gateway_fetch.json.text and
+    ailab_research_gateway_fetch.json.sha256 | length == 64
+  changed_when: false
+  no_log: true
+
+- name: Exercise authenticated private SearXNG search
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_research_gateway_port }}/v1/search"
+    method: POST
+    headers:
+      X-Api-Key: "{{ ailab_research_gateway_api_key }}"
+    body_format: json
+    body:
+      query: Bank of Canada interest rate
+      categories: general
+      language: en
+      count: 3
+    status_code: 200
+    return_content: true
+    timeout: 60
+  register: ailab_research_gateway_search
+  retries: 3
+  delay: 2
+  until: >-
+    ailab_research_gateway_search.status == 200 and
+    ailab_research_gateway_search.json.results is defined
+  changed_when: false
+  no_log: true
+
+- name: Exercise controlled retrieval through Docling extraction
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_research_gateway_port }}/v1/extract"
+    method: POST
+    headers:
+      X-Api-Key: "{{ ailab_research_gateway_api_key }}"
+    body_format: json
+    body:
+      url: https://example.com/
+    status_code: 200
+    return_content: true
+    timeout: 180
+  register: ailab_research_gateway_extract
+  retries: 2
+  delay: 2
+  until: >-
+    ailab_research_gateway_extract.status == 200 and
+    ailab_research_gateway_extract.json.extraction.status == 'success' and
+    'Example Domain' in ailab_research_gateway_extract.json.extraction.document.md_content
+  changed_when: false
+  no_log: true
+
+- name: Report the accepted controlled research service
+  ansible.builtin.debug:
+    msg:
+      - "Research Gateway {{ ailab_research_gateway_version }} is ready on loopback port {{ ailab_research_gateway_port }}."
+      - "Public-only DNS, manual redirect validation, byte limits, authentication, and Docling byte forwarding passed."
+      - "The bounded private SearXNG search path passed."

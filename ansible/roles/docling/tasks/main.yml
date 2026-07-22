@@ -1,0 +1,137 @@
+---
+- name: Require the private Docling deployment inputs
+  ansible.builtin.assert:
+    that:
+      - ailab_docling_api_key is defined
+      - ailab_docling_api_key | length >= 40
+      - ailab_docling_port | int > 1024
+      - ailab_docling_max_file_size_bytes | int > 0
+      - ailab_docling_max_pages | int > 0
+    fail_msg: Docling requires a persistent strong API key and bounded extraction limits.
+  no_log: true
+
+- name: Create the Docling configuration and cache directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: ailab
+    mode: "{{ item.mode }}"
+    recurse: "{{ item.recurse }}"
+  loop:
+    - path: "{{ ailab_docling_root }}"
+      owner: root
+      mode: "0750"
+      recurse: false
+    - path: "{{ ailab_docling_cache_dir }}"
+      # The pinned image declares uid 1001 and gid 0. Keep it non-root while
+      # allowing model-cache writes without granting host-wide permissions.
+      owner: "1001"
+      mode: "0770"
+      recurse: true
+
+- name: Install the root-owned Docling environment
+  ansible.builtin.template:
+    src: docling.env.j2
+    dest: "{{ ailab_docling_root }}/docling.env"
+    owner: root
+    group: ailab
+    mode: "0640"
+  register: ailab_docling_environment
+  no_log: true
+
+- name: Install the pinned Docling Compose definition
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ ailab_docling_root }}/compose.yaml"
+    owner: root
+    group: ailab
+    mode: "0640"
+  register: ailab_docling_compose
+
+- name: Install the harmless Docling extraction fixture
+  ansible.builtin.copy:
+    src: smoke.html
+    dest: "{{ ailab_docling_root }}/smoke.html"
+    owner: root
+    group: ailab
+    mode: "0644"
+
+- name: Validate the rendered Docling Compose definition
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_docling_root }}"
+      - config
+      - --quiet
+  changed_when: false
+
+- name: Start the private Docling extraction service
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_docling_root }}"
+      - up
+      - -d
+      - --remove-orphans
+  register: ailab_docling_start
+  changed_when: >-
+    'Started' in ailab_docling_start.stderr or
+    'Created' in ailab_docling_start.stderr or
+    'Recreated' in ailab_docling_start.stderr
+
+- name: Wait for the authenticated Docling version endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_docling_port }}/version"
+    method: GET
+    headers:
+      X-Api-Key: "{{ ailab_docling_api_key }}"
+    status_code: 200
+    return_content: true
+  register: ailab_docling_version_response
+  retries: 120
+  delay: 5
+  until: ailab_docling_version_response.status == 200
+  changed_when: false
+  no_log: true
+
+- name: Require Docling to reject an unauthenticated conversion request
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_docling_port }}/v1/convert/source"
+    method: POST
+    body_format: json
+    body: {}
+    status_code: 401
+  changed_when: false
+
+- name: Exercise authenticated HTML and table extraction
+  ansible.builtin.shell: |
+    set -euo pipefail
+    response="$(curl \
+      --fail-with-body \
+      --silent \
+      --show-error \
+      --max-time 180 \
+      --request POST \
+      --header "X-Api-Key: ${DOCLING_SMOKE_API_KEY}" \
+      --form "files=@{{ ailab_docling_root }}/smoke.html;type=text/html" \
+      --form "from_formats=html" \
+      --form "to_formats=md" \
+      "http://127.0.0.1:{{ ailab_docling_port }}/v1/convert/file")"
+    python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["status"] == "success"; text=r["document"]["md_content"]; assert "Controlled document extraction is operational" in text and "Docling" in text' <<<"$response"
+  args:
+    executable: /bin/bash
+  environment:
+    DOCLING_SMOKE_API_KEY: "{{ ailab_docling_api_key }}"
+  changed_when: false
+  no_log: true
+
+- name: Report the accepted private extraction service
+  ansible.builtin.debug:
+    msg:
+      - "Docling Serve {{ ailab_docling_version }} is ready on loopback port {{ ailab_docling_port }}."
+      - "Authentication, extraction limits, local CPU execution, and single-use results are enforced."

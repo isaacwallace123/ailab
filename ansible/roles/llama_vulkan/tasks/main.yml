@@ -1,0 +1,355 @@
+---
+- name: Verify the accepted guest and GPU kernel baseline
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == ailab_expected_distribution
+      - ansible_distribution_version is version(ailab_expected_distribution_version, '==')
+      - ansible_kernel is version('6.14', '>=')
+    fail_msg: >-
+      llama.cpp Vulkan requires the accepted Ubuntu 24.04 GPU baseline; found
+      {{ ansible_distribution }} {{ ansible_distribution_version }} on {{ ansible_kernel }}.
+
+- name: Verify Vulkan still enumerates the reviewed Intel GPU
+  ansible.builtin.command:
+    argv:
+      - vulkaninfo
+      - --summary
+  register: ailab_llama_vulkan_inventory
+  changed_when: false
+
+- name: Require the exact Intel Vulkan device
+  ansible.builtin.assert:
+    that:
+      - "'vendorID           = 0x8086' in ailab_llama_vulkan_inventory.stdout"
+      - "('deviceID           = ' ~ ailab_expected_gpu_vulkan_device_id) in ailab_llama_vulkan_inventory.stdout"
+      - "ailab_expected_gpu_vulkan_name in ailab_llama_vulkan_inventory.stdout"
+    fail_msg: "The accepted {{ ailab_expected_gpu_label }} Vulkan device is missing."
+
+- name: Install reproducible Vulkan build dependencies
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - ccache
+      - cmake
+      - git
+      - glslc
+      - libvulkan-dev
+      - ninja-build
+      - spirv-headers
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: ailab_llama_vulkan_packages
+
+- name: Create the unprivileged model-runtime account
+  ansible.builtin.user:
+    name: "{{ ailab_runtime_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ ailab_runtime_state_dir }}"
+    create_home: true
+    groups:
+      - render
+      - video
+    append: true
+
+- name: Create runtime source, model, and benchmark directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ ailab_runtime_source_root }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ ailab_runtime_state_dir }}/models/smoke"
+      owner: "{{ ailab_runtime_user }}"
+      group: "{{ ailab_runtime_user }}"
+      mode: "0750"
+    - path: "{{ ailab_runtime_state_dir }}/benchmarks"
+      owner: "{{ ailab_runtime_user }}"
+      group: "{{ ailab_runtime_user }}"
+      mode: "0750"
+    - path: "{{ ailab_runtime_state_dir }}/.ansible/tmp"
+      owner: "{{ ailab_runtime_user }}"
+      group: "{{ ailab_runtime_user }}"
+      mode: "0700"
+
+- name: Check out the pinned llama.cpp release
+  ansible.builtin.git:
+    repo: "{{ ailab_llama_cpp_repository }}"
+    dest: "{{ ailab_llama_cpp_source_dir }}"
+    version: "{{ ailab_llama_cpp_version }}"
+    depth: 1
+    single_branch: true
+    update: true
+  register: ailab_llama_cpp_checkout
+
+- name: Record the reviewed Vulkan build configuration
+  ansible.builtin.copy:
+    content: |
+      version={{ ailab_llama_cpp_version }}
+      commit={{ ailab_llama_cpp_commit }}
+      generator=Ninja
+      build_type=Release
+      GGML_VULKAN=ON
+      GGML_BUILD_TESTS=OFF
+    dest: "{{ ailab_llama_cpp_source_dir }}/.ailab-vulkan-build-config"
+    owner: root
+    group: root
+    mode: "0644"
+  register: ailab_llama_vulkan_build_config
+
+- name: Inspect the Vulkan benchmark binary
+  ansible.builtin.stat:
+    path: "{{ ailab_llama_cpp_build_dir }}/bin/llama-bench"
+  register: ailab_llama_vulkan_benchmark_binary
+
+- name: Configure the pinned Vulkan build
+  ansible.builtin.command:
+    argv:
+      - cmake
+      - -S
+      - "{{ ailab_llama_cpp_source_dir }}"
+      - -B
+      - "{{ ailab_llama_cpp_build_dir }}"
+      - -G
+      - Ninja
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DGGML_VULKAN=ON
+      - -DGGML_BUILD_TESTS=OFF
+  environment:
+    CCACHE_DIR: "{{ ailab_runtime_state_dir }}/ccache"
+  when: >-
+    ailab_llama_vulkan_packages.changed or
+    ailab_llama_cpp_checkout.changed or
+    ailab_llama_vulkan_build_config.changed or
+    not ailab_llama_vulkan_benchmark_binary.stat.exists
+  register: ailab_llama_vulkan_configure
+
+- name: Build the Vulkan CLI, benchmark, and server binaries
+  ansible.builtin.command:
+    argv:
+      - cmake
+      - --build
+      - "{{ ailab_llama_cpp_build_dir }}"
+      - --parallel
+      - "{{ ansible_processor_vcpus | string }}"
+      - --target
+      - llama-cli
+      - llama-bench
+      - llama-server
+  environment:
+    CCACHE_DIR: "{{ ailab_runtime_state_dir }}/ccache"
+  when: ailab_llama_vulkan_configure.changed
+
+- name: Read the checked-out llama.cpp commit
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ ailab_llama_cpp_source_dir }}"
+      - rev-parse
+      - HEAD
+  register: ailab_llama_cpp_checked_out_commit
+  changed_when: false
+
+- name: Require the reviewed llama.cpp commit
+  ansible.builtin.assert:
+    that:
+      - ailab_llama_cpp_checked_out_commit.stdout == ailab_llama_cpp_commit
+    fail_msg: >-
+      llama.cpp checkout drifted from {{ ailab_llama_cpp_commit }} to
+      {{ ailab_llama_cpp_checked_out_commit.stdout }}.
+
+- name: Download the checksum-pinned smoke model
+  ansible.builtin.get_url:
+    url: "{{ ailab_smoke_model_url }}"
+    dest: "{{ ailab_smoke_model_path }}"
+    checksum: "sha256:{{ ailab_smoke_model_sha256 }}"
+    owner: "{{ ailab_runtime_user }}"
+    group: "{{ ailab_runtime_user }}"
+    mode: "0640"
+    timeout: 120
+
+- name: List llama.cpp accelerator devices
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_llama_cpp_build_dir }}/bin/llama-bench"
+      - --list-devices
+  become_user: "{{ ailab_runtime_user }}"
+  register: ailab_llama_vulkan_devices
+  changed_when: false
+
+- name: Require llama.cpp to select the reviewed Intel GPU through Vulkan
+  ansible.builtin.assert:
+    that:
+      - "'Vulkan0' in (ailab_llama_vulkan_devices.stdout + ailab_llama_vulkan_devices.stderr)"
+      - "ailab_expected_gpu_vulkan_name in (ailab_llama_vulkan_devices.stdout + ailab_llama_vulkan_devices.stderr)"
+    fail_msg: >-
+      The Vulkan build does not expose {{ ailab_expected_gpu_label }}:
+      {{ ailab_llama_vulkan_devices.stdout }} {{ ailab_llama_vulkan_devices.stderr }}
+
+- name: Execute the pinned Vulkan inference smoke benchmark
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_llama_cpp_build_dir }}/bin/llama-bench"
+      - --model
+      - "{{ ailab_smoke_model_path }}"
+      - --device
+      - Vulkan0
+      - --n-gpu-layers
+      - "99"
+      - --n-prompt
+      - "512"
+      - --n-gen
+      - "128"
+      - --repetitions
+      - "3"
+      - --output
+      - jsonl
+  become_user: "{{ ailab_runtime_user }}"
+  register: ailab_llama_vulkan_smoke
+  changed_when: false
+
+- name: Require successful Vulkan prompt and generation measurements
+  ansible.builtin.assert:
+    that:
+      - "'Vulkan' in ailab_llama_vulkan_smoke.stdout"
+      - "ailab_expected_gpu_vulkan_name in ailab_llama_vulkan_smoke.stdout"
+      - "'\"n_prompt\": 512' in ailab_llama_vulkan_smoke.stdout"
+      - "'\"n_gen\": 128' in ailab_llama_vulkan_smoke.stdout"
+      - "'\"avg_ts\":' in ailab_llama_vulkan_smoke.stdout"
+    fail_msg: >-
+      llama.cpp Vulkan did not return the required benchmark records:
+      {{ ailab_llama_vulkan_smoke.stdout }} {{ ailab_llama_vulkan_smoke.stderr }}
+
+- name: Execute a deterministic Vulkan chat smoke test
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_llama_cpp_build_dir }}/bin/llama-cli"
+      - --model
+      - "{{ ailab_smoke_model_path }}"
+      - --device
+      - Vulkan0
+      - --n-gpu-layers
+      - "99"
+      - --ctx-size
+      - "2048"
+      - --predict
+      - "64"
+      - --temp
+      - "0"
+      - --seed
+      - "42"
+      - --conversation
+      - --single-turn
+      - --no-display-prompt
+      - --no-warmup
+      - --reasoning
+      - "off"
+      - --system-prompt
+      - Follow the user's output-format instruction exactly.
+      - --prompt
+      - Reply with the exact token AILAB_GPU_OK and nothing else.
+  become_user: "{{ ailab_runtime_user }}"
+  register: ailab_llama_vulkan_chat_smoke
+  changed_when: false
+
+- name: Require a correct deterministic chat response
+  ansible.builtin.assert:
+    that:
+      - "'AILAB_GPU_OK' in ailab_llama_vulkan_chat_smoke.stdout"
+    fail_msg: >-
+      The Vulkan runtime generated output but failed the deterministic chat smoke gate:
+      {{ ailab_llama_vulkan_chat_smoke.stdout }} {{ ailab_llama_vulkan_chat_smoke.stderr }}
+
+- name: Install the localhost-only llama.cpp smoke unit
+  ansible.builtin.template:
+    src: ailab-llama-smoke.service.j2
+    dest: /etc/systemd/system/ailab-llama-smoke.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: ailab_llama_smoke_unit
+
+- name: Reload systemd after changing the smoke unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: ailab_llama_smoke_unit.changed
+
+- name: Keep the smoke server disabled and stopped at rest
+  ansible.builtin.systemd_service:
+    name: ailab-llama-smoke.service
+    enabled: false
+    state: stopped
+
+- name: Validate the localhost-only OpenAI-compatible API
+  block:
+    - name: Start the isolated smoke server
+      ansible.builtin.systemd_service:
+        name: ailab-llama-smoke.service
+        state: started
+      changed_when: false
+
+    - name: Wait for llama.cpp model readiness
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_llama_smoke_port }}/health"
+        method: GET
+        status_code: 200
+        return_content: true
+      register: ailab_llama_smoke_health
+      retries: 30
+      delay: 2
+      until: ailab_llama_smoke_health.status == 200
+      changed_when: false
+
+    - name: Send a deterministic OpenAI-compatible chat request
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_llama_smoke_port }}/v1/chat/completions"
+        method: POST
+        body_format: json
+        body:
+          model: ailab-smoke
+          temperature: 0
+          max_tokens: 64
+          reasoning_budget: 0
+          chat_template_kwargs:
+            enable_thinking: false
+          messages:
+            - role: system
+              content: Follow the user's output-format instruction exactly.
+            - role: user
+              content: Reply with the exact token AILAB_API_OK and nothing else.
+        status_code: 200
+        return_content: true
+        timeout: 120
+      register: ailab_llama_smoke_api
+      changed_when: false
+
+    - name: Require the expected API response
+      ansible.builtin.assert:
+        that:
+          - ailab_llama_smoke_api.json.model == 'ailab-smoke'
+          - "'AILAB_API_OK' in ailab_llama_smoke_api.json.choices[0].message.content"
+        fail_msg: >-
+          The localhost OpenAI-compatible API returned an unexpected response:
+          {{ ailab_llama_smoke_api.json }}
+  always:
+    - name: Stop the smoke server after API validation
+      ansible.builtin.systemd_service:
+        name: ailab-llama-smoke.service
+        state: stopped
+      changed_when: false
+
+- name: Report the accepted llama.cpp Vulkan smoke result
+  ansible.builtin.debug:
+    msg:
+      - "llama.cpp: {{ ailab_llama_cpp_version }} ({{ ailab_llama_cpp_commit }})"
+      - "Model: {{ ailab_smoke_model_name }}"
+      - "{{ ailab_llama_vulkan_smoke.stdout_lines }}"
+      - "Chat smoke: AILAB_GPU_OK"
+      - "Local API smoke: AILAB_API_OK"

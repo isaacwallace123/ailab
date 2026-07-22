@@ -1,0 +1,11 @@
+{
+  "command": "/lab-status",
+  "name": "Lab Status Check",
+  "content": "Assess the current state of {{lab}} for this concern: {{concern}}. Use timestamped runtime evidence for health claims and repository knowledge only for intended state. Report current state, evidence timestamps, likely cause or uncertainty, and the safest next read-only check. Do not perform remediation.",
+  "data": {},
+  "meta": {"description": "Evidence-driven read-only status check for one lab."},
+  "tags": ["labs", "operations", "read-only"],
+  "access_grants": null,
+  "commit_message": "AI Lab cookbook v1",
+  "is_production": true
+}

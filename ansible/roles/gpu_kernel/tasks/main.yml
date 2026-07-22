@@ -1,0 +1,78 @@
+---
+- name: Install the supported Ubuntu HWE kernel and GPU diagnostics
+  ansible.builtin.apt:
+    name:
+      - clinfo
+      - intel-gpu-tools
+      - linux-firmware
+      - linux-generic-hwe-24.04
+      - linux-tools-generic-hwe-24.04
+      - vainfo
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: ailab_gpu_kernel_packages
+
+- name: Reboot into the supported HWE kernel when packages changed
+  ansible.builtin.reboot:
+    msg: Rebooting {{ inventory_hostname }} into the reviewed Ubuntu HWE kernel
+    connect_timeout: 10
+    reboot_timeout: 600
+    pre_reboot_delay: 0
+    post_reboot_delay: 10
+    test_command: uname -r
+  when: ailab_gpu_kernel_packages.changed
+
+- name: Refresh facts after the possible kernel reboot
+  ansible.builtin.setup:
+
+- name: Verify the running kernel meets the Intel GPU baseline
+  ansible.builtin.assert:
+    that:
+      - ansible_kernel is version('6.14', '>=')
+    fail_msg: "{{ ailab_expected_gpu_label }} requires Ubuntu kernel 6.14 or newer; found {{ ansible_kernel }}."
+
+- name: Read the Intel GPU kernel-driver binding
+  ansible.builtin.command:
+    argv:
+      - lspci
+      - -nnk
+      - -d
+      - "{{ ailab_expected_gpu_pci_id }}"
+  register: ailab_gpu_kernel_binding
+  changed_when: false
+
+- name: Verify xe owns the Intel GPU
+  ansible.builtin.assert:
+    that:
+      - "'Kernel driver in use: xe' in ailab_gpu_kernel_binding.stdout"
+    fail_msg: >-
+      The HWE kernel sees {{ ailab_expected_gpu_label }} but did not bind it to xe:
+      {{ ailab_gpu_kernel_binding.stdout }}
+
+- name: Verify the render device exists
+  ansible.builtin.stat:
+    path: /dev/dri/renderD128
+  register: ailab_render_device
+
+- name: Require a character render device
+  ansible.builtin.assert:
+    that:
+      - ailab_render_device.stat.exists
+      - ailab_render_device.stat.ischr
+    fail_msg: The {{ ailab_expected_gpu_label }} render device /dev/dri/renderD128 is missing.
+
+- name: Grant the AI operator access to GPU device groups
+  ansible.builtin.user:
+    name: isaac
+    groups:
+      - render
+      - video
+    append: true
+
+- name: Report the accepted kernel and driver
+  ansible.builtin.debug:
+    msg:
+      - "Kernel: {{ ansible_kernel }}"
+      - "{{ ailab_gpu_kernel_binding.stdout }}"
+      - "Render device: /dev/dri/renderD128"

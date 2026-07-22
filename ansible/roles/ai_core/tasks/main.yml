@@ -1,0 +1,58 @@
+---
+- name: Install the stable service-plane runtime
+  ansible.builtin.apt:
+    name: "{{ ailab_core_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the AI lab service group
+  ansible.builtin.group:
+    name: "{{ ailab_core_service_group }}"
+    system: true
+    state: present
+
+- name: Create the AI lab service account
+  ansible.builtin.user:
+    name: "{{ ailab_core_service_user }}"
+    group: "{{ ailab_core_service_group }}"
+    groups:
+      - docker
+      - ailab-config
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+
+- name: Create persistent AI core directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ailab_core_service_user }}"
+    group: "{{ ailab_core_service_group }}"
+    mode: "0750"
+  loop: "{{ ailab_core_directories }}"
+
+- name: Enable the container runtime
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Enable host metrics
+  ansible.builtin.service:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
+
+- name: Allow node-exporter metrics from approved administration sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    to_port: "9100"
+    from_ip: "{{ item }}"
+    comment: AI core host metrics
+  loop: "{{ ailab_admin_cidrs }}"
+

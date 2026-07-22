@@ -1,0 +1,10 @@
+---
+- name: Build and benchmark the llama.cpp Vulkan baseline
+  hosts: ai_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Configure and validate llama.cpp Vulkan
+      ansible.builtin.import_role:
+        name: llama_vulkan

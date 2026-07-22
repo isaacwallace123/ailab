@@ -1,0 +1,11 @@
+{
+  "command": "/finance-research",
+  "name": "Source-first Finance Research",
+  "content": "Research this finance question as of {{CURRENT_DATE}}: [QUESTION]. Confirm the jurisdiction, currency, security/product, and requested as-of time. Start with private SearXNG through Finance Web Research, open the strongest results through controlled fetching, and use official sources for filings and economic series. Treat search snippets only as discovery; verify page timestamps, exchange, currency, and stated delay before reporting market data. Consult at least three useful sources when available, including a primary source. Separate reported facts, estimates, and inference; reconcile disagreements; and finish with an evidence table containing publisher, date, URL, supported claim, and freshness limitation.",
+  "data": {},
+  "meta": {"description": "Current finance research with feed and source provenance."},
+  "tags": ["finance", "research", "citations", "current"],
+  "access_grants": null,
+  "commit_message": "AI Lab finance research v1",
+  "is_production": true
+}

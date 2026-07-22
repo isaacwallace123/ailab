@@ -1,0 +1,75 @@
+---
+- name: Retire the legacy application plane from ai-node-01
+  hosts: ai-node-01
+  become: true
+  gather_facts: false
+
+  vars:
+    ailab_legacy_service_units:
+      - ailab-openwebui.service
+      - ailab-litellm.service
+
+  tasks:
+    - name: Stop and disable legacy user-facing services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ ailab_legacy_service_units }}"
+
+    - name: Mask legacy user-facing services against accidental restart
+      ansible.builtin.file:
+        src: /dev/null
+        dest: "/etc/systemd/system/{{ item }}"
+        state: link
+        force: true
+      loop: "{{ ailab_legacy_service_units }}"
+      notify: Reload systemd after retiring services
+
+    - name: Remove workstation access to the legacy Open WebUI port
+      community.general.ufw:
+        rule: allow
+        delete: true
+        direction: in
+        proto: tcp
+        to_port: "{{ ailab_openwebui_port | string }}"
+        from_ip: "{{ item }}"
+      loop: "{{ ailab_openwebui_allowed_cidrs }}"
+
+    - name: Remove workstation access to the legacy LiteLLM port
+      community.general.ufw:
+        rule: allow
+        delete: true
+        direction: in
+        proto: tcp
+        to_port: "{{ ailab_litellm_port | string }}"
+        from_ip: "{{ item }}"
+      loop: "{{ ailab_litellm_allowed_cidrs }}"
+
+    - name: Require the retired ports to be closed locally
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ item }}"
+        state: stopped
+        timeout: 10
+      loop:
+        - "{{ ailab_openwebui_port }}"
+        - "{{ ailab_litellm_port }}"
+
+    - name: Confirm the GPU worker remains active
+      ansible.builtin.systemd_service:
+        name: ailab-llama-worker.service
+        state: started
+        enabled: true
+
+    - name: Wait for the retained worker health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_llama_worker_port }}/health"
+        method: GET
+        status_code: 200
+      changed_when: false
+
+  handlers:
+    - name: Reload systemd after retiring services
+      ansible.builtin.systemd_service:
+        daemon_reload: true

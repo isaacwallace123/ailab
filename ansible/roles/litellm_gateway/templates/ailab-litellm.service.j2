@@ -1,0 +1,44 @@
+[Unit]
+Description=AI Lab LiteLLM model gateway
+Documentation=https://docs.litellm.ai/docs/proxy/quick_start
+After=network-online.target postgresql.service{% if ailab_litellm_local_worker_required | default(true) %} ailab-llama-worker.service{% endif %}
+Wants=network-online.target postgresql.service
+{% if ailab_litellm_local_worker_required | default(true) %}
+Requires=ailab-llama-worker.service
+{% endif %}
+
+[Service]
+Type=simple
+User=ailab-gateway
+Group=ailab-gateway
+WorkingDirectory={{ ailab_litellm_state_dir }}
+Environment=HOME={{ ailab_litellm_state_dir }}
+EnvironmentFile={{ ailab_litellm_environment_path }}
+ExecStart={{ ailab_litellm_install_root }}/venv/bin/litellm --config {{ ailab_litellm_config_path }} --host 0.0.0.0 --port {{ ailab_litellm_port }} --num_workers 1
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=30
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+DevicePolicy=closed
+ReadWritePaths={{ ailab_litellm_state_dir }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+version: 1
+collections:
+  - id: ailab
+    label: AI Lab
+    root: ${AILAB_REPO_PATH:-.}
+    includes:
+      - README.md
+      - docs/**/*.md
+      - services/**/*.md
+      - models/**/*.md
+      - datasets/**/*.md
+  - id: homelab
+    label: Homelab
+    root: ${HOMELAB_REPO_PATH:-../homelab}
+    includes:
+      - README.md
+      - docs/**/*.md
+      - docs/backstage/catalog/*.yaml
+      - argocd-apps/**/*.yaml
+      - manifests/**/*.yaml
+  - id: cyberlab
+    label: Cyberlab
+    root: ${CYBERLAB_REPO_PATH:-../cyberlab}
+    includes:
+      - README.md
+      - docs/**/*.md
+      - schemas/*.json
+      - scenarios/**/*.yaml
+      - terraform/**/*.tf

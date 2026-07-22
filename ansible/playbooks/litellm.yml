@@ -1,0 +1,269 @@
+---
+- name: Prepare the controller-owned LiteLLM master key
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    ailab_litellm_controller_key_path: >-
+      {{ lookup('env', 'AILAB_LITELLM_MASTER_KEY_PATH')
+         | default('/home/isaac/.config/ailab/litellm-master-key', true) }}
+    ailab_controller_secret_dir: >-
+      {{ lookup('env', 'AILAB_CONTROLLER_SECRET_DIR')
+         | default('/home/isaac/.config/ailab', true) }}
+    ailab_controller_secret_specs:
+      - name: litellm-database-password
+        path: "{{ ailab_controller_secret_dir }}/litellm-database-password"
+        prefix: ""
+      - name: openwebui-database-password
+        path: "{{ ailab_controller_secret_dir }}/openwebui-database-password"
+        prefix: ""
+      - name: openwebui-secret-key
+        path: "{{ ailab_controller_secret_dir }}/openwebui-secret-key"
+        prefix: ""
+      - name: openwebui-admin-password
+        path: "{{ ailab_controller_secret_dir }}/openwebui-admin-password"
+        prefix: ""
+      - name: lab-status-assistant-api-token
+        path: "{{ ailab_controller_secret_dir }}/lab-status-assistant-api-token"
+        prefix: lsa-
+      - name: searxng-secret-key
+        path: "{{ ailab_controller_secret_dir }}/searxng-secret-key"
+        prefix: ""
+      - name: docling-api-key
+        path: "{{ ailab_controller_secret_dir }}/docling-api-key"
+        prefix: dcl-
+      - name: research-gateway-api-key
+        path: "{{ ailab_controller_secret_dir }}/research-gateway-api-key"
+        prefix: rsg-
+      - name: personal
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/personal"
+        prefix: sk-
+      - name: open-webui
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/open-webui"
+        prefix: sk-
+      - name: orchestrator
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/orchestrator"
+        prefix: sk-
+      - name: codex
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/codex"
+        prefix: sk-
+      - name: claude
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/claude"
+        prefix: sk-
+      - name: gemini
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/gemini"
+        prefix: sk-
+      - name: cordly
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys/cordly"
+        prefix: sk-
+    # Upstream provider keys are optional and are never generated. The matching
+    # cloud route appears only when the operator deliberately installs its key.
+    ailab_optional_provider_secret_specs:
+      - name: openai-api-key
+        path: "{{ ailab_controller_secret_dir }}/providers/openai-api-key"
+      - name: anthropic-api-key
+        path: "{{ ailab_controller_secret_dir }}/providers/anthropic-api-key"
+      - name: gemini-api-key
+        path: "{{ ailab_controller_secret_dir }}/providers/gemini-api-key"
+
+  tasks:
+    - name: Create the private controller secret directory
+      ansible.builtin.file:
+        path: "{{ ailab_litellm_controller_key_path | dirname }}"
+        state: directory
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: "0700"
+
+    - name: Generate or reuse the private LiteLLM master key
+      ansible.builtin.set_fact:
+        ailab_litellm_generated_master_key: >-
+          {{ lookup('ansible.builtin.password', ailab_litellm_controller_key_path,
+                    length=48, chars=['ascii_letters', 'digits']) }}
+      no_log: true
+
+    - name: Restrict the controller master-key file
+      ansible.builtin.file:
+        path: "{{ ailab_litellm_controller_key_path }}"
+        mode: "0600"
+
+    - name: Create the private client-key directory
+      ansible.builtin.file:
+        path: "{{ ailab_controller_secret_dir }}/litellm-keys"
+        state: directory
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: "0700"
+
+    - name: Create the private upstream-provider directory
+      ansible.builtin.file:
+        path: "{{ ailab_controller_secret_dir }}/providers"
+        state: directory
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: "0700"
+
+    - name: Inspect persistent controller secrets
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop: "{{ ailab_controller_secret_specs }}"
+      register: ailab_controller_secret_stats
+      no_log: true
+
+    - name: Generate missing persistent controller secrets
+      ansible.builtin.copy:
+        content: >-
+          {{ item.item.prefix }}{{ lookup('ansible.builtin.password', '/dev/null',
+             length=64, chars=['ascii_letters', 'digits']) }}
+        dest: "{{ item.item.path }}"
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: "0600"
+      loop: "{{ ailab_controller_secret_stats.results }}"
+      when: not item.stat.exists
+      no_log: true
+
+    - name: Restrict persistent controller secret files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: "0600"
+      loop: "{{ ailab_controller_secret_specs }}"
+      no_log: true
+
+    - name: Read persistent controller secrets
+      ansible.builtin.slurp:
+        path: "{{ item.path }}"
+      loop: "{{ ailab_controller_secret_specs }}"
+      register: ailab_controller_secret_contents
+      no_log: true
+
+    - name: Build the in-memory controller secret map
+      ansible.builtin.set_fact:
+        ailab_controller_secrets: >-
+          {{ ailab_controller_secrets | default({}) |
+             combine({item.item.name: item.content | b64decode | trim}) }}
+      loop: "{{ ailab_controller_secret_contents.results }}"
+      no_log: true
+
+    - name: Inspect optional upstream-provider API keys
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop: "{{ ailab_optional_provider_secret_specs }}"
+      register: ailab_optional_provider_secret_stats
+      no_log: true
+
+    - name: Read installed upstream-provider API keys
+      ansible.builtin.slurp:
+        path: "{{ item.item.path }}"
+      loop: "{{ ailab_optional_provider_secret_stats.results }}"
+      when: item.stat.exists
+      register: ailab_optional_provider_secret_contents
+      no_log: true
+
+    - name: Add installed upstream-provider keys to the in-memory secret map
+      ansible.builtin.set_fact:
+        ailab_controller_secrets: >-
+          {{ ailab_controller_secrets |
+             combine({item.item.item.name: item.content | b64decode | trim}) }}
+      loop: "{{ ailab_optional_provider_secret_contents.results }}"
+      when: not (item.skipped | default(false))
+      no_log: true
+
+- name: Enable the persistent llama.cpp workers
+  hosts: ai_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: llama_worker
+
+- name: Deploy the loopback-only platform databases
+  hosts: "{{ ailab_service_host | default('ai-core-01') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    ailab_postgresql_passwords:
+      litellm: "{{ hostvars['localhost']['ailab_controller_secrets']['litellm-database-password'] }}"
+      openwebui: "{{ hostvars['localhost']['ailab_controller_secrets']['openwebui-database-password'] }}"
+
+  roles:
+    - role: platform_postgresql
+
+- name: Deploy and validate the LiteLLM gateway
+  hosts: "{{ ailab_service_host | default('ai-core-01') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    ailab_litellm_master_key: >-
+      {{ hostvars['localhost']['ailab_litellm_generated_master_key'] }}
+    ailab_litellm_database_password: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['litellm-database-password'] }}
+    ailab_litellm_virtual_key_secrets: >-
+      {{ hostvars['localhost']['ailab_controller_secrets'] }}
+    ailab_openai_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets'].get('openai-api-key', '') }}
+    ailab_anthropic_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets'].get('anthropic-api-key', '') }}
+    ailab_gemini_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets'].get('gemini-api-key', '') }}
+
+  roles:
+    - role: litellm_gateway
+
+- name: Deploy and validate the private SearXNG search service
+  hosts: "{{ ailab_service_host | default('ai-core-01') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    ailab_searxng_secret_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['searxng-secret-key'] }}
+
+  roles:
+    - role: searxng
+
+- name: Deploy and validate the private Docling extraction service
+  hosts: "{{ ailab_service_host | default('ai-core-01') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    ailab_docling_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['docling-api-key'] }}
+
+  roles:
+    - role: docling
+
+- name: Deploy and validate the controlled research gateway
+  hosts: "{{ ailab_service_host | default('ai-core-01') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    ailab_research_gateway_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['research-gateway-api-key'] }}
+    ailab_docling_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['docling-api-key'] }}
+
+  roles:
+    - role: research_gateway
+
+- name: Deploy and validate Open WebUI
+  hosts: "{{ ailab_service_host | default('ai-core-01') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    ailab_openwebui_database_password: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['openwebui-database-password'] }}
+    ailab_openwebui_secret_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['openwebui-secret-key'] }}
+    ailab_openwebui_admin_password: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['openwebui-admin-password'] }}
+    ailab_openwebui_litellm_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['open-webui'] }}
+    ailab_openwebui_assistant_api_key: >-
+      {{ hostvars['localhost']['ailab_controller_secrets']['lab-status-assistant-api-token'] }}
+
+  roles:
+    - role: openwebui

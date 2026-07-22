@@ -1,0 +1,114 @@
+---
+- name: Move AI core outside the DHCP pool
+  hosts: ai_core
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Require the reviewed core network identity
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == "ai-core-01"
+          - ansible_default_ipv4.interface == "eth0"
+          - ansible_default_ipv4.macaddress | lower == ailab_core_mac_address | lower
+          - ailab_core_ipv4_address == "192.168.0.221"
+          - ailab_core_ipv4_prefix | int == 24
+          - ailab_core_ipv4_gateway == "192.168.0.1"
+        fail_msg: Refusing to change an unexpected host or network identity.
+
+    - name: Inspect the superseded cloud-init Netplan file
+      ansible.builtin.stat:
+        path: /etc/netplan/50-cloud-init.yaml
+      register: ailab_core_cloud_init_netplan
+
+    - name: Read the superseded cloud-init Netplan file
+      ansible.builtin.slurp:
+        path: /etc/netplan/50-cloud-init.yaml
+      register: ailab_core_cloud_init_netplan_content
+      when: ailab_core_cloud_init_netplan.stat.exists
+
+    - name: Require the generated Netplan file to belong to this core
+      ansible.builtin.assert:
+        that:
+          - ailab_core_mac_address in (ailab_core_cloud_init_netplan_content.content | b64decode | lower)
+          - ailab_core_ipv4_address in (ailab_core_cloud_init_netplan_content.content | b64decode)
+        fail_msg: Refusing to remove an unexpected cloud-init network definition.
+      when: ailab_core_cloud_init_netplan.stat.exists
+
+    - name: Disable cloud-init network regeneration
+      ansible.builtin.copy:
+        content: "network: {config: disabled}\n"
+        dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+        owner: root
+        group: root
+        mode: "0644"
+      register: ailab_core_cloud_init_network_disabled
+
+    - name: Remove the verified superseded cloud-init Netplan file
+      ansible.builtin.file:
+        path: /etc/netplan/50-cloud-init.yaml
+        state: absent
+      register: ailab_core_cloud_init_netplan_removed
+
+    - name: Install the reviewed static Netplan override
+      ansible.builtin.template:
+        src: ../templates/ai-core-static-netplan.yaml.j2
+        dest: /etc/netplan/60-ailab-static.yaml
+        owner: root
+        group: root
+        mode: "0600"
+      register: ailab_core_netplan
+
+    - name: Validate the merged Netplan configuration
+      ansible.builtin.command: netplan generate
+      changed_when: false
+
+    - name: Reboot into the static network configuration
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: >-
+        ailab_core_netplan.changed or
+        ailab_core_cloud_init_network_disabled.changed or
+        ailab_core_cloud_init_netplan_removed.changed
+
+    - name: Refresh network facts after the address transition
+      ansible.builtin.setup:
+        gather_subset:
+          - network
+
+    - name: Require the static address and default gateway
+      ansible.builtin.assert:
+        that:
+          - ansible_default_ipv4.address == ailab_core_ipv4_address
+          - ansible_default_ipv4.gateway == ailab_core_ipv4_gateway
+        fail_msg: ai-core-01 did not return on its reviewed static address and gateway.
+
+    - name: Require public DNS through the reviewed resolver set
+      ansible.builtin.command:
+        argv:
+          - resolvectl
+          - query
+          - example.com
+      changed_when: false
+
+    - name: Wait for the complete Open WebUI service path
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/ready
+        method: GET
+        status_code: 200
+      register: ailab_core_openwebui_ready
+      retries: 60
+      delay: 2
+      until: ailab_core_openwebui_ready.status == 200
+      changed_when: false
+
+    - name: Wait for the core assistant retrieval path
+      ansible.builtin.uri:
+        url: http://127.0.0.1:18088/health/ready
+        method: GET
+        status_code: 200
+      register: ailab_core_assistant_ready
+      retries: 60
+      delay: 2
+      until: ailab_core_assistant_ready.status == 200
+      changed_when: false

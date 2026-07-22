@@ -1,0 +1,19 @@
+version: 1
+collections:
+  - name: AI Lab Operating Manual
+    description: Architecture, safety boundaries, roadmap, model gateway, and operator guidance for the private AI station.
+    files:
+      - cookbook/knowledge/ai-station-guide.md
+      - docs/architecture.md
+      - docs/security-boundaries.md
+      - docs/roadmap.md
+      - docs/model-gateway.md
+      - docs/open-webui.md
+  - name: Projects Index
+    description: Ownership and orientation for the local AI lab, homelab, cyberlab, portfolio, and application projects.
+    files:
+      - cookbook/knowledge/projects-index.md
+  - name: Family Finance Foundations
+    description: Evergreen educational framework and safety rules for family personal-finance conversations.
+    files:
+      - cookbook/knowledge/family-finance-foundations.md

@@ -1,0 +1,95 @@
+name: ailab-core-assistant
+
+services:
+  assistant-postgres:
+    image: pgvector/pgvector:0.8.2-pg17
+    environment:
+      POSTGRES_DB: ailab
+      POSTGRES_USER: ailab
+      POSTGRES_PASSWORD: ${AILAB_ASSISTANT_DATABASE_PASSWORD}
+    ports:
+      - "127.0.0.1:${AILAB_ASSISTANT_DATABASE_PORT}:5432"
+    volumes:
+      - assistant-postgres-data:/var/lib/postgresql/data
+      - ./backups/ailab.dump:/bootstrap/ailab.dump:ro
+    shm_size: 256mb
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailab -d ailab"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  lab-status-assistant:
+    build:
+      context: ./app
+    user: "${AILAB_SERVICE_UID}:${AILAB_SERVICE_GID}"
+    network_mode: host
+    environment:
+      AILAB_ENVIRONMENT: production
+      AILAB_API_TOKEN: ${AILAB_API_TOKEN}
+      AILAB_SOURCE_CONFIG: /app/config/sources.yaml
+      AILAB_DATABASE_URL: postgresql://ailab:${AILAB_ASSISTANT_DATABASE_PASSWORD}@127.0.0.1:${AILAB_ASSISTANT_DATABASE_PORT}/ailab
+      AILAB_PROMETHEUS_SNAPSHOT_PATH: /runtime/homelab-prometheus.json
+      AILAB_PROMETHEUS_SNAPSHOT_MAX_AGE_SECONDS: "120"
+      AILAB_KUBERNETES_SNAPSHOT_PATH: /runtime/homelab-kubernetes.json
+      AILAB_KUBERNETES_SNAPSHOT_MAX_AGE_SECONDS: "120"
+      AILAB_PROXMOX_SNAPSHOT_PATH: /runtime/cyberlab-proxmox.json
+      AILAB_PROXMOX_SNAPSHOT_MAX_AGE_SECONDS: "300"
+      AILAB_LITELLM_API_BASE: http://127.0.0.1:4000/v1
+      AILAB_LITELLM_API_KEY: ${AILAB_LITELLM_API_KEY}
+      AILAB_ASSISTANT_MODEL: local-auto
+      AILAB_ASSISTANT_TIMEOUT_SECONDS: "210"
+      AILAB_ASSISTANT_KNOWLEDGE_LIMIT: "5"
+      AILAB_EMBEDDING_MODEL: ${AILAB_EMBEDDING_MODEL}
+      AILAB_EMBEDDING_DIMENSIONS: ${AILAB_EMBEDDING_DIMENSIONS}
+      AILAB_EMBEDDING_CACHE_DIR: /models/embeddings
+      AILAB_EMBEDDING_THREADS: ${AILAB_EMBEDDING_THREADS}
+      AILAB_ASSISTANT_PROFILE_PATH: /private/assistant-profile.md
+      HF_HOME: /models/embeddings
+      HF_HUB_DISABLE_XET: "1"
+      XDG_CACHE_HOME: /models/embeddings
+    command:
+      - uvicorn
+      - lab_status_assistant.app:create_app
+      - --factory
+      - --host
+      - 127.0.0.1
+      - --port
+      - "${AILAB_ASSISTANT_PORT}"
+    depends_on:
+      assistant-postgres:
+        condition: service_healthy
+    volumes:
+      - ./config/sources.yaml:/app/config/sources.yaml:ro
+      - ./datasets:/app/datasets:ro
+      - ./sources/ailab:/sources/ailab:ro
+      - ./sources/homelab:/sources/homelab:ro
+      - ./sources/cyberlab:/sources/cyberlab:ro
+      - ./runtime:/runtime:ro
+      - ./embeddings:/models/embeddings
+      - ./private:/private:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${AILAB_ASSISTANT_PORT}/health/ready', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  assistant-postgres-data:

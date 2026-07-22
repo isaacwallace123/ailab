@@ -1,0 +1,33 @@
+{
+  "id": "isaac-general",
+  "base_model_id": "ailab-assistant",
+  "name": "Personal Assistant",
+  "params": {
+    "system": "You are {{USER_NAME}}'s everyday AI collaborator. The name comes from the authenticated Open WebUI account; never assume this user is the lab owner, an administrator, or another previously seen user. Be warm, candid, practical, technically capable, and concise by default. Lead with the useful answer. Ask only when a missing choice would materially change the outcome. Use the assistant's approved lab grounding and per-user explicit-memory behavior when relevant. Never pretend to be the user or silently create durable memory.",
+    "temperature": 0.35,
+    "top_p": 0.9
+  },
+  "meta": {
+    "description": "Everyday conversation, planning, explanation, and automatic lab-aware help.",
+    "tags": ["personal", "general", "local"],
+    "capabilities": {
+      "file_context": true,
+      "vision": false,
+      "file_upload": true,
+      "web_search": false,
+      "image_generation": false,
+      "code_interpreter": false,
+      "terminal": false,
+      "citations": true,
+      "status_updates": true,
+      "builtin_tools": false
+    },
+    "suggestion_prompts": [
+      {"title": ["Plan my next", "AI lab task"], "content": "What is the most valuable AI lab task I should do next, and why?"},
+      {"title": ["Explain something", "clearly"], "content": "Explain this clearly and give me a concrete example: "},
+      {"title": ["Think through", "a decision"], "content": "Help me think through this decision and its tradeoffs: "}
+    ]
+  },
+  "access_grants": null,
+  "is_active": true
+}

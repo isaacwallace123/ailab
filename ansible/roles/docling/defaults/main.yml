@@ -1,0 +1,12 @@
+---
+ailab_docling_root: /opt/ailab/extraction/docling
+ailab_docling_cache_dir: /var/lib/ailab/docling/cache
+ailab_docling_port: 15001
+ailab_docling_version: v1.21.0
+ailab_docling_max_file_size_bytes: 52428800
+ailab_docling_max_pages: 200
+ailab_docling_max_document_timeout_seconds: 900
+ailab_docling_memory_limit: 6g
+ailab_docling_cpu_limit: "4.0"
+ailab_docling_threads: 2
+

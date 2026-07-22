@@ -1,0 +1,216 @@
+---
+- name: Require strong Open WebUI secrets
+  ansible.builtin.assert:
+    that:
+      - ailab_openwebui_database_password is defined
+      - ailab_openwebui_database_password | length >= 40
+      - ailab_openwebui_secret_key is defined
+      - ailab_openwebui_secret_key | length >= 40
+      - ailab_openwebui_admin_password is defined
+      # Reconcile legacy accounts created under the original 12-byte policy.
+      # The rotation helper enforces 16 bytes for every new password.
+      - ailab_openwebui_admin_password | length >= 12
+      - ailab_openwebui_litellm_key is defined
+      - ailab_openwebui_litellm_key | length >= 40
+      - ailab_openwebui_assistant_api_key is defined
+      - ailab_openwebui_assistant_api_key | length >= 40
+    fail_msg: One or more Open WebUI secrets are missing or too short.
+  no_log: true
+
+- name: Install the isolated Python runtime dependency
+  ansible.builtin.apt:
+    name:
+      - python3-venv
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the unprivileged Open WebUI account
+  ansible.builtin.user:
+    name: ailab-webui
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ ailab_openwebui_state_dir }}"
+    create_home: true
+
+- name: Create Open WebUI installation and state directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ ailab_openwebui_install_root }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ ailab_openwebui_state_dir }}"
+      owner: ailab-webui
+      group: ailab-webui
+      mode: "0750"
+
+- name: Create the dedicated Open WebUI virtual environment
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -m
+      - venv
+      - "{{ ailab_openwebui_install_root }}/venv"
+    creates: "{{ ailab_openwebui_install_root }}/venv/bin/python"
+
+- name: Install the pinned Open WebUI release
+  ansible.builtin.pip:
+    name:
+      - "open-webui=={{ ailab_openwebui_version }}"
+      - "psycopg2-binary=={{ ailab_openwebui_psycopg2_version }}"
+    executable: "{{ ailab_openwebui_install_root }}/venv/bin/pip"
+    extra_args: --disable-pip-version-check --no-cache-dir
+  register: ailab_openwebui_package
+
+- name: Verify the installed Open WebUI version
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_openwebui_install_root }}/venv/bin/python"
+      - -c
+      - >-
+        import importlib.metadata;
+        print(importlib.metadata.version('open-webui'))
+  register: ailab_openwebui_installed_version
+  changed_when: false
+
+- name: Require the exact reviewed Open WebUI release
+  ansible.builtin.assert:
+    that:
+      - ailab_openwebui_installed_version.stdout == ailab_openwebui_version
+    fail_msg: >-
+      Expected Open WebUI {{ ailab_openwebui_version }}, found
+      {{ ailab_openwebui_installed_version.stdout }}.
+
+- name: Install the root-owned Open WebUI environment
+  ansible.builtin.template:
+    src: open-webui.env.j2
+    dest: "{{ ailab_openwebui_environment_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: ailab_openwebui_environment
+  no_log: true
+
+- name: Install the hardened Open WebUI systemd unit
+  ansible.builtin.template:
+    src: ailab-openwebui.service.j2
+    dest: /etc/systemd/system/ailab-openwebui.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: ailab_openwebui_unit
+
+- name: Allow approved clients to reach Open WebUI
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    to_port: "{{ ailab_openwebui_port | string }}"
+    from_ip: "{{ item }}"
+    comment: AI lab Open WebUI
+  loop: "{{ ailab_openwebui_allowed_cidrs }}"
+
+- name: Remove the superseded workstation-only Open WebUI rule
+  community.general.ufw:
+    delete: true
+    rule: allow
+    direction: in
+    proto: tcp
+    to_port: "{{ ailab_openwebui_port | string }}"
+    from_ip: 192.168.0.138/32
+    comment: AI lab Open WebUI
+  when: "'192.168.0.138/32' not in ailab_openwebui_allowed_cidrs"
+
+- name: Reload systemd after changing the Open WebUI unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: ailab_openwebui_unit.changed
+
+- name: Enable and start Open WebUI
+  ansible.builtin.systemd_service:
+    name: ailab-openwebui.service
+    enabled: true
+    state: started
+  register: ailab_openwebui_service
+
+- name: Restart Open WebUI after package or configuration changes
+  ansible.builtin.systemd_service:
+    name: ailab-openwebui.service
+    state: restarted
+  when: >-
+    (ailab_openwebui_package.changed or ailab_openwebui_environment.changed or
+     ailab_openwebui_unit.changed) and not ailab_openwebui_service.changed
+
+- name: Wait for Open WebUI readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_openwebui_port }}/ready"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: ailab_openwebui_readiness
+  retries: 120
+  delay: 2
+  until: ailab_openwebui_readiness.status == 200
+  changed_when: false
+
+- name: Sign in through the bootstrapped local administrator
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_openwebui_port }}/api/v1/auths/signin"
+    method: POST
+    body_format: json
+    body:
+      email: "{{ ailab_openwebui_admin_email }}"
+      password: "{{ ailab_openwebui_admin_password }}"
+    status_code: 200
+    return_content: true
+  register: ailab_openwebui_signin
+  changed_when: false
+  no_log: true
+
+- name: List models through the Open WebUI backend
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_openwebui_port }}/api/models"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ ailab_openwebui_signin.json.token }}"
+    status_code: 200
+    return_content: true
+  register: ailab_openwebui_models
+  changed_when: false
+  no_log: true
+
+- name: Require the automatic route in Open WebUI
+  ansible.builtin.assert:
+    that:
+      - "'local-auto' in (ailab_openwebui_models.json.data | map(attribute='id') | list)"
+      - "'ailab-grounded' in (ailab_openwebui_models.json.data | map(attribute='id') | list)"
+    fail_msg: Open WebUI did not publish the local-auto LiteLLM route.
+  no_log: true
+
+- name: Require closed public signup
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_openwebui_port }}/api/config"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: ailab_openwebui_public_config
+  changed_when: false
+
+- name: Reject an Open WebUI deployment with public signup enabled
+  ansible.builtin.assert:
+    that:
+      - not (ailab_openwebui_public_config.json.features.enable_signup | bool)
+    fail_msg: Open WebUI public signup is unexpectedly enabled.
+
+- name: Report the accepted Open WebUI service
+  ansible.builtin.debug:
+    msg:
+      - "Open WebUI {{ ailab_openwebui_version }} is ready on port {{ ailab_openwebui_port }}."
+      - "The UI publishes raw local aliases and the citation-grounded AI Lab Assistant."
+      - "Public signup is disabled and the local administrator exists."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Navigate Projects"
+  short_description: "Orient across local repositories and projects."
+  default_prompt: "Use -projects to orient in these repositories and identify the relevant source of truth."

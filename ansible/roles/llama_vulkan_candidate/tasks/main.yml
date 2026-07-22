@@ -1,0 +1,263 @@
+---
+- name: Verify the pinned Vulkan benchmark binary exists
+  ansible.builtin.stat:
+    path: "{{ ailab_llama_cpp_build_dir }}/bin/llama-bench"
+  register: ailab_candidate_benchmark_binary
+
+- name: Require the accepted Vulkan runtime baseline
+  ansible.builtin.assert:
+    that:
+      - ailab_candidate_benchmark_binary.stat.exists
+      - ailab_candidate_benchmark_binary.stat.isreg
+      - ailab_candidate_benchmark_binary.stat.executable
+    fail_msg: Run playbooks/llama-vulkan.yml successfully before benchmarking a candidate model.
+
+- name: Verify llama.cpp remains on the reviewed commit
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ ailab_llama_cpp_source_dir }}"
+      - rev-parse
+      - HEAD
+  register: ailab_candidate_runtime_commit
+  changed_when: false
+
+- name: Require the reviewed llama.cpp commit
+  ansible.builtin.assert:
+    that:
+      - ailab_candidate_runtime_commit.stdout == ailab_llama_cpp_commit
+    fail_msg: >-
+      Candidate benchmark runtime drifted from {{ ailab_llama_cpp_commit }} to
+      {{ ailab_candidate_runtime_commit.stdout }}.
+
+- name: Verify Vulkan still enumerates the reviewed Intel GPU
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_llama_cpp_build_dir }}/bin/llama-bench"
+      - --list-devices
+  become_user: "{{ ailab_runtime_user }}"
+  register: ailab_candidate_vulkan_devices
+  changed_when: false
+
+- name: Require the exact Intel Vulkan device
+  ansible.builtin.assert:
+    that:
+      - "'Vulkan0' in (ailab_candidate_vulkan_devices.stdout + ailab_candidate_vulkan_devices.stderr)"
+      - "ailab_expected_gpu_vulkan_name in (ailab_candidate_vulkan_devices.stdout + ailab_candidate_vulkan_devices.stderr)"
+    fail_msg: "The accepted {{ ailab_expected_gpu_label }} Vulkan device is missing."
+
+- name: Create the candidate model directory
+  ansible.builtin.file:
+    path: "{{ ailab_runtime_state_dir }}/models/candidates"
+    state: directory
+    owner: "{{ ailab_runtime_user }}"
+    group: "{{ ailab_runtime_user }}"
+    mode: "0750"
+
+- name: Download the checksum-pinned 8B candidate
+  ansible.builtin.get_url:
+    url: "{{ ailab_candidate_model_url }}"
+    dest: "{{ ailab_candidate_model_path }}"
+    checksum: "sha256:{{ ailab_candidate_model_sha256 }}"
+    owner: "{{ ailab_runtime_user }}"
+    group: "{{ ailab_runtime_user }}"
+    mode: "0640"
+    timeout: 600
+
+- name: Benchmark 512-token, 4K-token, and generation workloads
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_llama_cpp_build_dir }}/bin/llama-bench"
+      - --model
+      - "{{ ailab_candidate_model_path }}"
+      - --device
+      - Vulkan0
+      - --n-gpu-layers
+      - "99"
+      - --flash-attn
+      - "1"
+      - --n-prompt
+      - "512,4096"
+      - --n-gen
+      - "128"
+      - --repetitions
+      - "3"
+      - --output
+      - jsonl
+  become_user: "{{ ailab_runtime_user }}"
+  register: ailab_candidate_vulkan_benchmark
+  changed_when: false
+
+- name: Parse the candidate benchmark records
+  ansible.builtin.set_fact:
+    ailab_candidate_vulkan_records: >-
+      {{ ailab_candidate_vulkan_benchmark.stdout_lines | map('from_json') | list }}
+
+- name: Require all candidate benchmark gates
+  ansible.builtin.assert:
+    that:
+      - ailab_candidate_vulkan_records | length == 3
+      - ailab_candidate_vulkan_records | selectattr('backends', 'equalto', 'Vulkan') | list | length == 3
+      - ailab_candidate_vulkan_records | selectattr('devices', 'equalto', 'Vulkan0') | list | length == 3
+      - ailab_candidate_vulkan_records | selectattr('n_prompt', 'equalto', 512) | list | length == 1
+      - ailab_candidate_vulkan_records | selectattr('n_prompt', 'equalto', 4096) | list | length == 1
+      - ailab_candidate_vulkan_records | selectattr('n_gen', 'equalto', 128) | list | length == 1
+      - ailab_candidate_vulkan_records | map(attribute='avg_ts') | min > 0
+    fail_msg: >-
+      The 8B Vulkan candidate did not complete the required benchmark matrix:
+      {{ ailab_candidate_vulkan_benchmark.stdout }}
+
+- name: Install the localhost-only candidate API unit
+  ansible.builtin.template:
+    src: ailab-llama-candidate.service.j2
+    dest: /etc/systemd/system/ailab-llama-candidate.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: ailab_candidate_api_unit
+
+- name: Reload systemd after changing the candidate unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: ailab_candidate_api_unit.changed
+
+- name: Keep the candidate API disabled and stopped at rest
+  ansible.builtin.systemd_service:
+    name: ailab-llama-candidate.service
+    enabled: false
+    state: stopped
+
+- name: Evaluate the localhost-only candidate API
+  block:
+    - name: Start the isolated 8B candidate server
+      ansible.builtin.systemd_service:
+        name: ailab-llama-candidate.service
+        state: started
+      changed_when: false
+
+    - name: Wait for the 8B candidate model to become ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_candidate_port }}/health"
+        method: GET
+        status_code: 200
+        return_content: true
+      register: ailab_candidate_health
+      retries: 60
+      delay: 2
+      until: ailab_candidate_health.status == 200
+      changed_when: false
+
+    - name: Request schema-constrained lab status JSON
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_candidate_port }}/v1/chat/completions"
+        method: POST
+        body_format: json
+        body:
+          model: ailab-qwen3-8b-candidate
+          temperature: 0
+          max_tokens: 128
+          reasoning_budget: 0
+          chat_template_kwargs:
+            enable_thinking: false
+          response_format:
+            type: json_schema
+            json_schema:
+              name: ailab_cluster_status
+              strict: true
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: healthy
+                  ready_nodes:
+                    type: integer
+                    const: 3
+                  alerts:
+                    type: integer
+                    const: 0
+                required:
+                  - status
+                  - ready_nodes
+                  - alerts
+                additionalProperties: false
+          messages:
+            - role: system
+              content: Return only the requested JSON object using the supplied facts.
+            - role: user
+              content: The cluster has 3 ready nodes and 0 active alerts. Report its status as healthy.
+        status_code: 200
+        return_content: true
+        timeout: 180
+      register: ailab_candidate_structured_api
+      changed_when: false
+
+    - name: Parse the structured candidate response
+      ansible.builtin.set_fact:
+        ailab_candidate_structured_content: >-
+          {{ ailab_candidate_structured_api.json.choices[0].message.content | from_json }}
+
+    - name: Require the exact structured status result
+      ansible.builtin.assert:
+        that:
+          - ailab_candidate_structured_content.get('status') == 'healthy'
+          - ailab_candidate_structured_content.get('ready_nodes') == 3
+          - ailab_candidate_structured_content.get('alerts') == 0
+        fail_msg: >-
+          The 8B candidate failed its structured-output gate:
+          parsed={{ ailab_candidate_structured_content }}
+          response={{ ailab_candidate_structured_api.json }}
+
+    - name: Request a citation-grounded Kubernetes status answer
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_candidate_port }}/v1/chat/completions"
+        method: POST
+        body_format: json
+        body:
+          model: ailab-qwen3-8b-candidate
+          temperature: 0
+          max_tokens: 160
+          reasoning_budget: 0
+          chat_template_kwargs:
+            enable_thinking: false
+          messages:
+            - role: system
+              content: >-
+                Use only supplied evidence. State the key counts and end verbatim with
+                [source:k8s-snapshot]
+            - role: user
+              content: >-
+                Evidence: Kubernetes has 3 ready nodes, 2 Argo CD applications are healthy and
+                synced, and there are 0 active alerts. Source ID: k8s-snapshot. How is the cluster?
+        status_code: 200
+        return_content: true
+        timeout: 180
+      register: ailab_candidate_grounded_api
+      changed_when: false
+
+    - name: Require grounded facts and the supplied citation
+      ansible.builtin.assert:
+        that:
+          - "'3' in ailab_candidate_grounded_api.json.choices[0].message.content"
+          - "'2' in ailab_candidate_grounded_api.json.choices[0].message.content"
+          - "'0' in ailab_candidate_grounded_api.json.choices[0].message.content"
+          - "'[source:k8s-snapshot]' in ailab_candidate_grounded_api.json.choices[0].message.content"
+        fail_msg: >-
+          The 8B candidate failed its citation-grounding gate:
+          {{ ailab_candidate_grounded_api.json }}
+  always:
+    - name: Stop the candidate API after evaluation
+      ansible.builtin.systemd_service:
+        name: ailab-llama-candidate.service
+        state: stopped
+      changed_when: false
+
+- name: Report the accepted 8B Vulkan benchmark
+  ansible.builtin.debug:
+    msg:
+      - "Model: {{ ailab_candidate_model_name }}"
+      - "Runtime: {{ ailab_llama_cpp_version }} ({{ ailab_llama_cpp_commit }})"
+      - "{{ ailab_candidate_vulkan_benchmark.stdout_lines | default(['Benchmark not run in this partial play']) }}"
+      - "Structured API: healthy, 3 ready nodes, 0 alerts"
+      - "Grounded API: {{ ailab_candidate_grounded_api.json.choices[0].message.content }}"

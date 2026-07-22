@@ -1,0 +1,3 @@
+interface:
+  display_name: "Interpret Market Data"
+  short_description: "Read market feeds, quotes, timestamps, and charts safely"

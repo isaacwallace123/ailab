@@ -1,0 +1,4 @@
+interface:
+  display_name: "Explain Personal Finance"
+  short_description: "Explain finance safely with verified assumptions."
+  default_prompt: "Use -personal-finance to explain this financial question without making decisions or transactions for me."

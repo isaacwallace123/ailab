@@ -1,0 +1,10 @@
+---
+ailab_research_gateway_root: /opt/ailab/research/gateway
+ailab_research_gateway_port: 18089
+ailab_research_gateway_version: 0.1.0
+ailab_research_gateway_max_response_bytes: 26214400
+ailab_research_gateway_max_text_chars: 100000
+ailab_research_gateway_max_redirects: 5
+ailab_research_gateway_timeout_seconds: 30
+ailab_research_gateway_max_concurrency: 4
+

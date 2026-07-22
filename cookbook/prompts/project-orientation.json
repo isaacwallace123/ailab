@@ -1,0 +1,11 @@
+{
+  "command": "/project-orientation",
+  "name": "Project Orientation",
+  "content": "Orient me in {{project_or_repository}} for this goal: {{goal}}. Find the owning repository and source-of-truth files. Summarize purpose, architecture, important paths, current implementation, unfinished work, and the smallest useful next task. Cite project-specific claims.",
+  "data": {},
+  "meta": {"description": "Quickly map a project before planning or editing."},
+  "tags": ["projects", "repositories"],
+  "access_grants": null,
+  "commit_message": "AI Lab cookbook v1",
+  "is_production": true
+}

@@ -1,0 +1,42 @@
+[Unit]
+Description=AI Lab llama.cpp Vulkan smoke server
+Documentation=https://github.com/ggml-org/llama.cpp/tree/master/tools/server
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsExecutable={{ ailab_llama_cpp_build_dir }}/bin/llama-server
+ConditionPathIsRegular={{ ailab_smoke_model_path }}
+
+[Service]
+Type=simple
+User={{ ailab_runtime_user }}
+Group={{ ailab_runtime_user }}
+WorkingDirectory={{ ailab_runtime_state_dir }}
+Environment=HOME={{ ailab_runtime_state_dir }}
+Environment=GGML_VK_VISIBLE_DEVICES=0
+ExecStart={{ ailab_llama_cpp_build_dir }}/bin/llama-server --model {{ ailab_smoke_model_path }} --alias ailab-smoke --host 127.0.0.1 --port {{ ailab_llama_smoke_port }} --ctx-size 4096 --n-gpu-layers 99 --device Vulkan0 --parallel 1 --metrics --offline
+Restart=no
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+DevicePolicy=closed
+DeviceAllow=/dev/dri/card0 rw
+DeviceAllow=/dev/dri/renderD128 rw
+ReadWritePaths={{ ailab_runtime_state_dir }}
+
+[Install]
+WantedBy=multi-user.target

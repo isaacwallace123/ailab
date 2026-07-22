@@ -1,0 +1,10 @@
+---
+ailab_expected_gpu_pci_id: "8086:e20b"
+ailab_expected_gpu_label: Intel Arc B580
+ailab_expected_gpu_name_pattern: B580
+ailab_expected_gpu_vulkan_device_id: "0xe20b"
+ailab_expected_gpu_vulkan_name: Intel(R) Arc(tm) B580 Graphics (BMG G21)
+ailab_expect_data_disk: false
+ailab_llama_worker_bind_address: 0.0.0.0
+ailab_llama_worker_allowed_cidrs:
+  - 192.168.0.221/32

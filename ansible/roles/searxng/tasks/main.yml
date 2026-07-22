@@ -1,0 +1,91 @@
+---
+- name: Require the private SearXNG deployment inputs
+  ansible.builtin.assert:
+    that:
+      - ailab_searxng_secret_key is defined
+      - ailab_searxng_secret_key | length >= 40
+      - ailab_searxng_port | int > 1024
+    fail_msg: SearXNG requires a persistent strong secret and an unprivileged loopback port.
+  no_log: true
+
+- name: Create the SearXNG configuration and state directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: ailab
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ ailab_searxng_root }}"
+      mode: "0750"
+    - path: "{{ ailab_searxng_state_dir }}"
+      mode: "0770"
+
+- name: Install the root-owned SearXNG settings
+  ansible.builtin.template:
+    src: settings.yml.j2
+    dest: "{{ ailab_searxng_root }}/settings.yml"
+    owner: root
+    group: ailab
+    mode: "0640"
+  register: ailab_searxng_settings
+  no_log: true
+
+- name: Install the pinned SearXNG Compose definition
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ ailab_searxng_root }}/compose.yaml"
+    owner: root
+    group: ailab
+    mode: "0640"
+  register: ailab_searxng_compose
+
+- name: Validate the rendered SearXNG Compose definition
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_searxng_root }}"
+      - config
+      - --quiet
+  changed_when: false
+
+- name: Start the private SearXNG service
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_searxng_root }}"
+      - up
+      - -d
+      - --remove-orphans
+  register: ailab_searxng_start
+  changed_when: >-
+    'Started' in ailab_searxng_start.stderr or
+    'Created' in ailab_searxng_start.stderr or
+    'Recreated' in ailab_searxng_start.stderr
+
+- name: Wait for the SearXNG JSON search API
+  ansible.builtin.uri:
+    url: >-
+      http://127.0.0.1:{{ ailab_searxng_port }}/search?q=OpenAI&format=json
+    method: GET
+    status_code: 200
+    return_content: true
+  register: ailab_searxng_search
+  retries: 30
+  delay: 2
+  until: >-
+    ailab_searxng_search.status == 200 and
+    ailab_searxng_search.json is mapping and
+    ailab_searxng_search.json.results is defined
+  changed_when: false
+
+- name: Report the accepted private search service
+  ansible.builtin.debug:
+    msg:
+      - "SearXNG {{ ailab_searxng_version }} is ready on loopback port {{ ailab_searxng_port }}."
+      - "The JSON API is enabled; no SearXNG port is exposed through UFW."
+

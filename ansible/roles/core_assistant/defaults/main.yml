@@ -1,0 +1,8 @@
+---
+ailab_core_assistant_root: /opt/ailab/core/assistant
+ailab_core_assistant_database_port: 55432
+ailab_core_assistant_port: 18088
+ailab_core_assistant_embedding_model: BAAI/bge-small-en-v1.5
+ailab_core_assistant_embedding_dimensions: 384
+ailab_core_assistant_embedding_threads: 4
+

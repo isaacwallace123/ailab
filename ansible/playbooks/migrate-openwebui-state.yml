@@ -1,0 +1,133 @@
+---
+- name: Capture a consistent Open WebUI rollback copy from the old service plane
+  hosts: ai-node-01
+  become: true
+  gather_facts: false
+
+  vars:
+    ailab_openwebui_migration_remote_dump: /var/tmp/ailab-openwebui-migration.dump
+    ailab_openwebui_migration_local_dump: >-
+      /mnt/c/Users/isaac/Desktop/ailab/artifacts/core-assistant/openwebui.dump
+
+  tasks:
+    - name: Require explicit state-migration approval
+      ansible.builtin.assert:
+        that:
+          - ailab_confirm_openwebui_migration | default(false) | bool
+        fail_msg: Set ailab_confirm_openwebui_migration=true to copy Open WebUI state.
+
+    - name: Dump the authoritative Open WebUI database
+      ansible.builtin.command:
+        argv:
+          - pg_dump
+          - --format=custom
+          - --file={{ ailab_openwebui_migration_remote_dump }}
+          - openwebui
+      become_user: postgres
+      changed_when: true
+
+    - name: Make the temporary dump readable only by the SSH account
+      ansible.builtin.file:
+        path: "{{ ailab_openwebui_migration_remote_dump }}"
+        owner: isaac
+        group: isaac
+        mode: "0600"
+
+    - name: Fetch the consistent Open WebUI dump
+      ansible.builtin.fetch:
+        src: "{{ ailab_openwebui_migration_remote_dump }}"
+        dest: "{{ ailab_openwebui_migration_local_dump }}"
+        flat: true
+
+    - name: Remove the source host's temporary dump
+      ansible.builtin.file:
+        path: "{{ ailab_openwebui_migration_remote_dump }}"
+        state: absent
+
+- name: Restore Open WebUI state into the new core once
+  hosts: ai_core
+  become: true
+  gather_facts: false
+
+  vars:
+    ailab_openwebui_migration_local_dump: >-
+      /mnt/c/Users/isaac/Desktop/ailab/artifacts/core-assistant/openwebui.dump
+    ailab_openwebui_migration_remote_dump: /var/lib/postgresql/openwebui-migration.dump
+    ailab_openwebui_migration_marker: /var/lib/ailab-openwebui/.migrated-from-ai-node-01
+
+  tasks:
+    - name: Require explicit state-migration approval
+      ansible.builtin.assert:
+        that:
+          - ailab_confirm_openwebui_migration | default(false) | bool
+        fail_msg: Set ailab_confirm_openwebui_migration=true to copy Open WebUI state.
+
+    - name: Inspect the Open WebUI migration marker
+      ansible.builtin.stat:
+        path: "{{ ailab_openwebui_migration_marker }}"
+      register: ailab_openwebui_migration_marker_state
+
+    - name: Copy the reviewed Open WebUI dump to the core
+      ansible.builtin.copy:
+        src: "{{ ailab_openwebui_migration_local_dump }}"
+        dest: "{{ ailab_openwebui_migration_remote_dump }}"
+        owner: postgres
+        group: postgres
+        mode: "0600"
+      when: not ailab_openwebui_migration_marker_state.stat.exists
+
+    - name: Validate the Open WebUI archive before stopping the staged UI
+      ansible.builtin.command:
+        argv:
+          - pg_restore
+          - --list
+          - "{{ ailab_openwebui_migration_remote_dump }}"
+      become_user: postgres
+      changed_when: false
+      when: not ailab_openwebui_migration_marker_state.stat.exists
+
+    - name: Stop only the staged core Open WebUI
+      ansible.builtin.service:
+        name: ailab-openwebui.service
+        state: stopped
+      when: not ailab_openwebui_migration_marker_state.stat.exists
+
+    - name: Replace staged Open WebUI state with the copied authoritative state
+      ansible.builtin.command:
+        argv:
+          - pg_restore
+          - --clean
+          - --if-exists
+          - --no-owner
+          - --no-privileges
+          - --role=openwebui
+          - --dbname=openwebui
+          - "{{ ailab_openwebui_migration_remote_dump }}"
+      become_user: postgres
+      when: not ailab_openwebui_migration_marker_state.stat.exists
+      no_log: true
+
+    - name: Record the successful Open WebUI migration
+      ansible.builtin.file:
+        path: "{{ ailab_openwebui_migration_marker }}"
+        state: touch
+        owner: ailab-webui
+        group: ailab-webui
+        mode: "0600"
+      when: not ailab_openwebui_migration_marker_state.stat.exists
+
+    - name: Start the core Open WebUI
+      ansible.builtin.service:
+        name: ailab-openwebui.service
+        state: started
+
+    - name: Wait for migrated Open WebUI readiness
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/ready
+        method: GET
+        status_code: 200
+      register: ailab_openwebui_migrated_ready
+      retries: 120
+      delay: 2
+      until: ailab_openwebui_migrated_ready.status == 200
+      changed_when: false

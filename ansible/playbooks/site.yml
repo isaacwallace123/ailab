@@ -1,0 +1,6 @@
+---
+- name: Run the safety preflight
+  ansible.builtin.import_playbook: preflight.yml
+
+- name: Apply the reviewed baseline
+  ansible.builtin.import_playbook: bootstrap.yml

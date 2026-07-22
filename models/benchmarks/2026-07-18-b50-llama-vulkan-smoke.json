@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-18T07:36:34Z",
+  "status": "pass",
+  "scope": "runtime smoke test; not a production model benchmark",
+  "host": {
+    "guest": "ai-node-01",
+    "cpu": "13th Gen Intel Core i7-13700KF",
+    "vcpus": 12,
+    "memory_gib": 48,
+    "gpu": "Intel Arc Pro B50 Graphics (BMG G21)",
+    "gpu_pci_id": "8086:e212",
+    "kernel": "7.0.0-28-generic"
+  },
+  "runtime": {
+    "name": "llama.cpp",
+    "backend": "Vulkan",
+    "device": "Vulkan0",
+    "release": "b10066",
+    "commit": "86a9c79f866799eb0e7e89c03578ccfbcc5d808e",
+    "gpu_layers": 99
+  },
+  "model": {
+    "repository": "Qwen/Qwen3-0.6B-GGUF",
+    "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+    "file": "Qwen3-0.6B-Q8_0.gguf",
+    "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+    "format": "Q8_0",
+    "parameters": 596049920,
+    "license": "Apache-2.0"
+  },
+  "benchmark": {
+    "tool": "llama-bench",
+    "repetitions": 3,
+    "prompt": {
+      "tokens": 512,
+      "average_tokens_per_second": 3684.694076,
+      "standard_deviation_tokens_per_second": 11.510924
+    },
+    "generation": {
+      "tokens": 128,
+      "average_tokens_per_second": 68.740372,
+      "standard_deviation_tokens_per_second": 0.113475
+    }
+  },
+  "correctness_smoke": {
+    "cli_expected_token": "AILAB_GPU_OK",
+    "cli_result": "pass",
+    "openai_compatible_api_expected_token": "AILAB_API_OK",
+    "openai_compatible_api_result": "pass",
+    "api_bind": "127.0.0.1:18080",
+    "service_state_after_test": "disabled and stopped"
+  },
+  "notes": [
+    "The benchmark measures llama.cpp prompt processing and token generation, not answer quality.",
+    "The smoke model is intentionally too small to select as the production assistant model.",
+    "Qwen thinking was explicitly disabled with chat_template_kwargs and a zero reasoning budget for the deterministic API gate.",
+    "The persistent 500 GiB data disk was not formatted or used."
+  ]
+}

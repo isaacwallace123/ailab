@@ -1,0 +1,10 @@
+---
+- name: Install and verify the supported Intel GPU kernel baseline
+  hosts: ai_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify the guest before changing its kernel
+      ansible.builtin.import_role:
+        name: gpu_kernel

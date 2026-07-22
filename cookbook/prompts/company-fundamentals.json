@@ -1,0 +1,11 @@
+{
+  "command": "/company-fundamentals",
+  "name": "Analyze Company Fundamentals",
+  "content": "Analyze [COMPANY / TICKER / CIK] as of {{CURRENT_DATE}}. Verify the legal issuer, exchange, reporting currency, and fiscal periods. Use official filings and structured regulator facts for financial history, current timestamped market data for valuation inputs, and independent sources for context. Cover revenue, margins, cash flow, capital needs, debt, dilution, segments, material risks, valuation sensitivities, conflicting evidence, and missing information. Do not give a buy/sell command or invent a price target.",
+  "data": {},
+  "meta": {"description": "Filing-first company and valuation analysis."},
+  "tags": ["finance", "company", "filings", "fundamentals"],
+  "access_grants": null,
+  "commit_message": "AI Lab finance research v1",
+  "is_production": true
+}

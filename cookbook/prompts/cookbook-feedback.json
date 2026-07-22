@@ -1,0 +1,11 @@
+{
+  "command": "/cookbook-feedback",
+  "name": "Capture Cookbook Improvement",
+  "content": "Turn this AI interaction into a cookbook improvement:\n\nExpected behavior: {{expected}}\nActual behavior: {{actual}}\nCorrection or preferred workflow: {{correction}}\n\nClassify the change as knowledge, memory, prompt, skill, tool, model preset, routing, or evaluation. Propose the smallest reproducible test and one focused versioned change. Do not silently rewrite production configuration.",
+  "data": {},
+  "meta": {"description": "Convert real corrections and failures into tested improvements."},
+  "tags": ["cookbook", "evaluation", "feedback"],
+  "access_grants": null,
+  "commit_message": "AI Lab cookbook v1",
+  "is_production": true
+}

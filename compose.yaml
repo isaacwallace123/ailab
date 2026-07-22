@@ -1,0 +1,87 @@
+name: ailab
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg17
+    environment:
+      POSTGRES_DB: ailab
+      POSTGRES_USER: ailab
+      POSTGRES_PASSWORD: ${AILAB_POSTGRES_PASSWORD:?Set AILAB_POSTGRES_PASSWORD in an untracked .env file}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    shm_size: 256mb
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailab -d ailab"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  lab-status-assistant:
+    build:
+      context: ./services/lab-status-assistant
+    environment:
+      AILAB_ENVIRONMENT: production
+      AILAB_API_TOKEN: ${AILAB_API_TOKEN:?Set AILAB_API_TOKEN in an untracked .env file}
+      AILAB_SOURCE_CONFIG: /app/config/sources.yaml
+      AILAB_DATABASE_URL: postgresql://ailab:${AILAB_POSTGRES_PASSWORD}@postgres:5432/ailab
+      AILAB_PROMETHEUS_URL: ${AILAB_PROMETHEUS_URL:-}
+      AILAB_PROMETHEUS_SNAPSHOT_PATH: ${AILAB_PROMETHEUS_SNAPSHOT_PATH:-}
+      AILAB_PROMETHEUS_SNAPSHOT_MAX_AGE_SECONDS: ${AILAB_PROMETHEUS_SNAPSHOT_MAX_AGE_SECONDS:-120}
+      AILAB_PROMETHEUS_VERIFY_TLS: ${AILAB_PROMETHEUS_VERIFY_TLS:-true}
+      AILAB_PROMETHEUS_TIMEOUT_SECONDS: ${AILAB_PROMETHEUS_TIMEOUT_SECONDS:-5}
+      AILAB_KUBERNETES_SNAPSHOT_PATH: ${AILAB_KUBERNETES_SNAPSHOT_PATH:-}
+      AILAB_KUBERNETES_SNAPSHOT_MAX_AGE_SECONDS: ${AILAB_KUBERNETES_SNAPSHOT_MAX_AGE_SECONDS:-120}
+      AILAB_PROXMOX_SNAPSHOT_PATH: ${AILAB_PROXMOX_SNAPSHOT_PATH:-}
+      AILAB_PROXMOX_SNAPSHOT_MAX_AGE_SECONDS: ${AILAB_PROXMOX_SNAPSHOT_MAX_AGE_SECONDS:-300}
+      AILAB_LITELLM_API_BASE: ${AILAB_LITELLM_API_BASE:-http://host.docker.internal:14000/v1}
+      AILAB_LITELLM_API_KEY: ${AILAB_LITELLM_API_KEY:?Use scripts/start-ai-station.ps1 to load the scoped orchestrator key}
+      AILAB_ASSISTANT_MODEL: ${AILAB_ASSISTANT_MODEL:-local-auto}
+      AILAB_ASSISTANT_TIMEOUT_SECONDS: ${AILAB_ASSISTANT_TIMEOUT_SECONDS:-210}
+      AILAB_ASSISTANT_KNOWLEDGE_LIMIT: ${AILAB_ASSISTANT_KNOWLEDGE_LIMIT:-5}
+      AILAB_EMBEDDING_MODEL: ${AILAB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      AILAB_EMBEDDING_DIMENSIONS: ${AILAB_EMBEDDING_DIMENSIONS:-384}
+      AILAB_EMBEDDING_CACHE_DIR: /models/embeddings
+      AILAB_EMBEDDING_THREADS: ${AILAB_EMBEDDING_THREADS:-4}
+      AILAB_ASSISTANT_PROFILE_PATH: /private/assistant-profile.md
+      HF_HOME: /models/embeddings
+      HF_HUB_DISABLE_XET: "1"
+      XDG_CACHE_HOME: /models/embeddings
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${AILAB_API_PORT:-8088}:8000"
+    volumes:
+      - ./config/sources.compose.yaml:/app/config/sources.yaml:ro
+      - ./datasets:/app/datasets:ro
+      - ./:/sources/ailab:ro
+      - ${HOMELAB_REPO_PATH:-../homelab}:/sources/homelab:ro
+      - ${CYBERLAB_REPO_PATH:-../cyberlab}:/sources/cyberlab:ro
+      - ./artifacts/runtime:/runtime:ro
+      - ./models/cache/embeddings:/models/embeddings
+      - ./.private:/private:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  postgres-data:

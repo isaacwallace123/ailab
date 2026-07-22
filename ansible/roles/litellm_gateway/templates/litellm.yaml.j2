@@ -1,0 +1,81 @@
+model_list:
+  - model_name: local-primary
+    litellm_params:
+      model: openai/{{ ailab_llama_worker_model_alias }}
+      api_base: {{ ailab_litellm_primary_api_base }}
+      api_key: none
+      timeout: 180
+    model_info:
+      id: b50-qwen3-8b-vulkan
+      description: Arc Pro B50 16 GiB primary local inference worker
+
+  - model_name: local-fast
+    litellm_params:
+      model: openai/{{ ailab_llama_worker_model_alias }}
+      api_base: {{ ailab_litellm_fast_api_base }}
+      api_key: none
+      timeout: 180
+    model_info:
+      id: b580-qwen3-8b-vulkan
+      description: Arc B580 12 GiB fast local inference worker
+
+  - model_name: local-auto
+    litellm_params:
+      model: openai/{{ ailab_llama_worker_model_alias }}
+      api_base: {{ ailab_litellm_fast_api_base }}
+      api_key: none
+      timeout: 180
+    model_info:
+      id: b580-qwen3-8b-vulkan-auto
+      description: Prefer the Arc B580 fast worker and fail over to the B50 primary worker
+
+{% if ailab_openai_api_key | default('') | length > 0 %}
+  - model_name: cloud-openai
+    litellm_params:
+      model: openai/{{ ailab_litellm_openai_model_id }}
+      api_key: os.environ/OPENAI_API_KEY
+      timeout: 300
+    model_info:
+      id: openai-{{ ailab_litellm_openai_model_id }}
+      description: Pinned OpenAI API model behind the budgeted AI Lab gateway
+{% endif %}
+
+{% if ailab_anthropic_api_key | default('') | length > 0 %}
+  - model_name: cloud-claude
+    litellm_params:
+      model: anthropic/{{ ailab_litellm_anthropic_model_id }}
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 300
+    model_info:
+      id: anthropic-{{ ailab_litellm_anthropic_model_id }}
+      description: Pinned Anthropic Claude API model behind the budgeted AI Lab gateway
+{% endif %}
+
+{% if ailab_gemini_api_key | default('') | length > 0 %}
+  - model_name: cloud-gemini
+    litellm_params:
+      model: gemini/{{ ailab_litellm_gemini_model_id }}
+      api_key: os.environ/GEMINI_API_KEY
+      timeout: 300
+    model_info:
+      id: google-{{ ailab_litellm_gemini_model_id }}
+      description: Pinned Google Gemini API model behind the budgeted AI Lab gateway
+{% endif %}
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 180
+  num_retries: 0
+
+router_settings:
+  fallbacks:
+    - local-auto:
+        - local-primary
+  allowed_fails: 1
+  cooldown_time: 30
+  num_retries: 0
+  timeout: 180
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL

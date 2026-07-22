@@ -1,0 +1,11 @@
+{
+  "command": "/finance-scenario",
+  "name": "Compare Finance Scenarios",
+  "content": "Explain and compare these personal-finance scenarios in {{country_or_province}} and {{currency}}:\n\n{{scenarios}}\n\nGoal and time horizon: {{goal_and_horizon}}\n\nShow assumptions and calculations, including fees, inflation, taxes where known, and downside cases. Verify any current limits, laws, rates, or product rules from authoritative sources. This is education only; do not execute transactions or guarantee outcomes.",
+  "data": {},
+  "meta": {"description": "Transparent, risk-aware comparison of financial choices."},
+  "tags": ["finance", "education", "family"],
+  "access_grants": null,
+  "commit_message": "AI Lab cookbook v1",
+  "is_production": true
+}

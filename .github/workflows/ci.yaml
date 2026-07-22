@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  assistant-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install uv
+      - name: Install locked dependencies
+        run: uv sync --locked --package lab-status-assistant --extra dev
+      - name: Lint
+        run: uv run --package lab-status-assistant ruff check .
+      - name: Format check
+        run: uv run --package lab-status-assistant ruff format --check .
+      - name: Test
+        run: uv run --package lab-status-assistant pytest
+
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [ai-node-01, ai-node-02]
+    defaults:
+      run:
+        working-directory: terraform/environments/${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.0"
+      - name: Format check
+        run: terraform fmt -check -recursive
+      - name: Initialize without backend
+        run: terraform init -backend=false -input=false
+      - name: Validate
+        run: terraform validate
+
+  ansible:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ansible
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install supported Ansible core
+        run: python -m pip install ansible-core==2.21.2
+      - name: Install required collections
+        run: ansible-galaxy collection install -r requirements.yml
+      - name: Syntax-check the complete guest automation
+        env:
+          AILAB_SSH_PRIVATE_KEY_PATH: /tmp/ailab-syntax-check
+        run: >-
+          ansible-playbook
+          -i inventory/production/hosts.example.yml
+          --syntax-check
+          playbooks/site.yml
+          playbooks/gpu-kernel.yml
+          playbooks/intel-compute.yml
+          playbooks/llama-vulkan.yml
+          playbooks/llama-vulkan-candidate.yml
+          playbooks/litellm.yml
+          playbooks/trust-ai-node-02.yml
+          playbooks/trust-ai-core.yml
+          playbooks/ai-core.yml
+          playbooks/set-ai-core-address.yml
+          playbooks/core-assistant.yml
+          playbooks/migrate-openwebui-state.yml
+          playbooks/retire-ai-node-01-services.yml
+      - name: Validate host gate shell syntax
+        run: >-
+          bash -n
+          ../scripts/validate-ai-gpu-passthrough.sh
+          ../scripts/configure-ai-gpu-passthrough.sh

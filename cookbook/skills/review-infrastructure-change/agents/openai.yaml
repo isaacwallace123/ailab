@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Infrastructure Change"
+  short_description: "Review infrastructure changes and rollback safety."
+  default_prompt: "Use -infrastructure-change to review this proposed infrastructure change and its rollback plan."

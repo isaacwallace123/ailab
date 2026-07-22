@@ -1,0 +1,128 @@
+---
+ailab_admin_cidrs:
+  - 192.168.0.138/32
+  - fe80::7656:3cff:fe49:bad7/128
+
+ailab_expected_distribution: Ubuntu
+ailab_expected_distribution_version: "24.04"
+
+ailab_runtime_user: ailab-runtime
+ailab_runtime_state_dir: /var/lib/ailab-runtime
+ailab_runtime_source_root: /opt/ailab/runtimes
+
+ailab_llama_cpp_repository: https://github.com/ggml-org/llama.cpp.git
+ailab_llama_cpp_version: b10066
+ailab_llama_cpp_commit: 86a9c79f866799eb0e7e89c03578ccfbcc5d808e
+ailab_llama_cpp_source_dir: "{{ ailab_runtime_source_root }}/llama.cpp"
+ailab_llama_cpp_build_dir: "{{ ailab_llama_cpp_source_dir }}/build-vulkan"
+ailab_llama_smoke_port: 18080
+
+ailab_smoke_model_name: Qwen3-0.6B-Q8_0
+ailab_smoke_model_path: "{{ ailab_runtime_state_dir }}/models/smoke/Qwen3-0.6B-Q8_0.gguf"
+ailab_smoke_model_url: >-
+  https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/23749fefcc72300e3a2ad315e1317431b06b590a/Qwen3-0.6B-Q8_0.gguf
+ailab_smoke_model_sha256: 9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031
+
+ailab_candidate_model_name: Qwen3-8B-Q4_K_M
+ailab_candidate_model_path: "{{ ailab_runtime_state_dir }}/models/candidates/Qwen3-8B-Q4_K_M.gguf"
+ailab_candidate_model_url: >-
+  https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf
+ailab_candidate_model_sha256: d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785
+ailab_candidate_port: 18081
+
+ailab_llama_worker_port: 18090
+ailab_llama_worker_model_alias: ailab-qwen3-8b
+ailab_llama_worker_reasoning: "off"
+ailab_llama_worker_reasoning_budget: 0
+
+ailab_litellm_version: 1.92.0
+ailab_litellm_port: 4000
+ailab_litellm_install_root: /opt/ailab/gateways/litellm
+ailab_litellm_state_dir: /var/lib/ailab-gateway
+ailab_litellm_config_path: /etc/ailab/litellm.yaml
+ailab_litellm_environment_path: /etc/ailab/litellm.env
+ailab_litellm_local_worker_required: true
+ailab_litellm_allowed_cidrs:
+  - 192.168.0.138/32
+ailab_litellm_virtual_key_policies:
+  - key_alias: personal
+    user_id: isaac
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 60
+    tpm_limit: 120000
+    max_parallel_requests: 2
+    max_budget: 5.0
+  - key_alias: open-webui
+    user_id: open-webui
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 30
+    tpm_limit: 120000
+    max_parallel_requests: 2
+    max_budget: 2.0
+  - key_alias: orchestrator
+    user_id: lab-status-assistant
+    models: [local-auto]
+    rpm_limit: 30
+    tpm_limit: 120000
+    max_parallel_requests: 2
+    max_budget: 2.0
+  - key_alias: codex
+    user_id: codex
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 20
+    tpm_limit: 80000
+    max_parallel_requests: 1
+    max_budget: 2.0
+  - key_alias: claude
+    user_id: claude
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 20
+    tpm_limit: 80000
+    max_parallel_requests: 1
+    max_budget: 2.0
+  - key_alias: gemini
+    user_id: gemini
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 20
+    tpm_limit: 80000
+    max_parallel_requests: 1
+    max_budget: 2.0
+  - key_alias: cordly
+    user_id: cordly
+    models: [local-auto]
+    rpm_limit: 15
+    tpm_limit: 60000
+    max_parallel_requests: 1
+    max_budget: 1.0
+
+ailab_postgresql_databases:
+  - name: litellm
+    owner: litellm
+  - name: openwebui
+    owner: openwebui
+
+ailab_openwebui_version: 0.10.2
+ailab_openwebui_psycopg2_version: 2.9.12
+ailab_openwebui_port: 8080
+ailab_openwebui_assistant_port: 18088
+ailab_openwebui_install_root: /opt/ailab/interfaces/open-webui
+ailab_openwebui_state_dir: /var/lib/ailab-openwebui
+ailab_openwebui_environment_path: /etc/ailab/open-webui.env
+ailab_openwebui_admin_email: isaac@ailab.local
+ailab_openwebui_public_url: http://192.168.0.101:8080
+ailab_openwebui_allowed_cidrs:
+  - 192.168.0.138/32
+
+ailab_base_packages:
+  - ca-certificates
+  - curl
+  - git
+  - htop
+  - jq
+  - lshw
+  - pciutils
+  - qemu-guest-agent
+  - smartmontools
+  - tmux
+  - ufw
+  - unzip

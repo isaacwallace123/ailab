@@ -1,0 +1,8 @@
+proxmox_endpoint     = "https://192.168.0.253:8006/"
+proxmox_api_token    = "terraform-ailab@pve!terraform=replace-with-token-secret"
+proxmox_insecure_tls = true
+mac_address           = "BC:24:11:09:A0:47"
+
+ssh_public_keys = [
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexampleOnlyDoNotUse ailab-example"
+]

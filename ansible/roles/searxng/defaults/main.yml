@@ -1,0 +1,8 @@
+---
+ailab_searxng_root: /opt/ailab/search/searxng
+ailab_searxng_state_dir: /var/lib/ailab/searxng
+ailab_searxng_port: 18888
+ailab_searxng_version: 2026.7.18-277d8469c
+ailab_searxng_request_timeout_seconds: 6.0
+ailab_searxng_max_request_timeout_seconds: 12.0
+

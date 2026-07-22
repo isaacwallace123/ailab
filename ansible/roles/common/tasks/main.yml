@@ -1,0 +1,82 @@
+---
+- name: Refresh the APT package index
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install baseline operations packages
+  ansible.builtin.apt:
+    name: "{{ ailab_base_packages }}"
+    state: present
+
+- name: Enable the QEMU guest agent
+  ansible.builtin.service:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+
+- name: Create the restricted AI configuration readers group
+  ansible.builtin.group:
+    name: ailab-config
+    system: true
+    state: present
+
+- name: Create AI lab configuration and service directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: /etc/ailab
+      group: ailab-config
+      mode: "0750"
+    - path: /opt/ailab
+      mode: "0755"
+
+- name: Install the AI lab SSH hardening drop-in
+  ansible.builtin.copy:
+    src: 60-ailab-hardening.conf
+    dest: /etc/ssh/sshd_config.d/60-ailab-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Validate the OpenSSH server configuration
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Reload OpenSSH after validating its complete configuration
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded
+  changed_when: false
+
+- name: Allow SSH only from approved administration sources
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    to_port: "22"
+    from_ip: "{{ item }}"
+    comment: AI lab administration
+  loop: "{{ ailab_admin_cidrs }}"
+
+- name: Set the default inbound firewall policy
+  community.general.ufw:
+    direction: incoming
+    default: deny
+
+- name: Set the default outbound firewall policy
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+
+- name: Enable host firewall logging
+  community.general.ufw:
+    logging: low
+
+- name: Enable the host firewall
+  community.general.ufw:
+    state: enabled

@@ -1,0 +1,74 @@
+---
+- name: Verify AI nodes before configuration
+  hosts: ai_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify the reviewed operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == ailab_expected_distribution
+          - ansible_distribution_version == ailab_expected_distribution_version
+        fail_msg: >-
+          Expected {{ ailab_expected_distribution }} {{ ailab_expected_distribution_version }},
+          found {{ ansible_distribution }} {{ ansible_distribution_version }}.
+
+    - name: Read the passed-through Intel GPU identity
+      ansible.builtin.command:
+        argv:
+          - lspci
+          - -nn
+          - -d
+          - "{{ ailab_expected_gpu_pci_id }}"
+      register: ailab_gpu
+      changed_when: false
+      failed_when: false
+
+    - name: Verify the expected Intel GPU is visible
+      ansible.builtin.assert:
+        that:
+          - ailab_gpu.rc == 0
+          - ailab_expected_gpu_pci_id in (ailab_gpu.stdout | lower)
+        fail_msg: >-
+          The expected {{ ailab_expected_gpu_label }} PCI ID {{ ailab_expected_gpu_pci_id }} is not visible.
+
+    - name: Read block-device inventory without changing disks
+      ansible.builtin.command:
+        argv:
+          - lsblk
+          - --bytes
+          - --json
+          - --output
+          - NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS,MODEL,SERIAL
+      register: ailab_lsblk
+      changed_when: false
+      when: ailab_expect_data_disk
+
+    - name: Identify the reviewed 500 GiB data disk
+      ansible.builtin.set_fact:
+        ailab_data_disk_candidates: >-
+          {{ (ailab_lsblk.stdout | from_json).blockdevices
+             | selectattr('type', 'equalto', 'disk')
+             | selectattr('size', 'equalto', ailab_expected_data_disk_bytes)
+             | list }}
+      when: ailab_expect_data_disk
+
+    - name: Require exactly one unformatted 500 GiB data disk
+      ansible.builtin.assert:
+        that:
+          - ailab_data_disk_candidates | length == 1
+          - ailab_data_disk_candidates[0].fstype in [none, '']
+          - ailab_data_disk_candidates[0].mountpoints | select | list | length == 0
+        fail_msg: >-
+          Expected exactly one unformatted, unmounted {{ ailab_expected_data_disk_bytes }}-byte disk.
+      when: ailab_expect_data_disk
+
+    - name: Report the safe preflight result
+      ansible.builtin.debug:
+        msg:
+          - "GPU: {{ ailab_gpu.stdout }}"
+          - >-
+            Data disk candidate:
+            {{ '/dev/' ~ ailab_data_disk_candidates[0].name
+               if ailab_expect_data_disk else 'not configured for this worker' }}

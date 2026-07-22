@@ -1,0 +1,63 @@
+---
+- name: Load controller-owned core assistant secrets
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    ailab_controller_secret_dir: /home/isaac/.config/ailab
+    ailab_core_assistant_database_password_path: >-
+      {{ ailab_controller_secret_dir }}/core-assistant-database-password
+
+  tasks:
+    - name: Generate or reuse the core assistant database password
+      ansible.builtin.set_fact:
+        ailab_core_assistant_database_password: >-
+          {{ lookup('ansible.builtin.password', ailab_core_assistant_database_password_path,
+                    length=64, chars=['ascii_letters', 'digits']) }}
+      no_log: true
+
+    - name: Restrict the core assistant database password
+      ansible.builtin.file:
+        path: "{{ ailab_core_assistant_database_password_path }}"
+        mode: "0600"
+
+    - name: Load the existing assistant identities and profile
+      ansible.builtin.set_fact:
+        ailab_core_assistant_api_token: >-
+          {{ lookup('ansible.builtin.file', ailab_controller_secret_dir + '/lab-status-assistant-api-token') | trim }}
+        ailab_core_assistant_litellm_key: >-
+          {{ lookup('ansible.builtin.file', ailab_controller_secret_dir + '/litellm-keys/orchestrator') | trim }}
+        ailab_core_assistant_profile: >-
+          {{ lookup('ansible.builtin.file', '/mnt/c/Users/isaac/Desktop/ailab/.private/assistant-profile.md') }}
+      no_log: true
+
+- name: Deploy the copied Lab Status Assistant on the stable core
+  hosts: ai_core
+  become: true
+  gather_facts: false
+
+  vars:
+    ailab_core_assistant_api_token: "{{ hostvars['localhost']['ailab_core_assistant_api_token'] }}"
+    ailab_core_assistant_database_password: "{{ hostvars['localhost']['ailab_core_assistant_database_password'] }}"
+    ailab_core_assistant_litellm_key: "{{ hostvars['localhost']['ailab_core_assistant_litellm_key'] }}"
+    ailab_core_assistant_profile: "{{ hostvars['localhost']['ailab_core_assistant_profile'] }}"
+    ailab_core_assistant_artifact_root: /mnt/c/Users/isaac/Desktop/ailab/artifacts/core-assistant
+    ailab_core_assistant_dump_path: "{{ ailab_core_assistant_artifact_root }}/ailab.dump"
+    ailab_core_assistant_archives:
+      - src: "{{ ailab_core_assistant_artifact_root }}/app.tar.gz"
+        dest: /opt/ailab/core/assistant/app
+      - src: "{{ ailab_core_assistant_artifact_root }}/ailab-sources.tar.gz"
+        dest: /opt/ailab/core/assistant/sources/ailab
+      - src: "{{ ailab_core_assistant_artifact_root }}/homelab-sources.tar.gz"
+        dest: /opt/ailab/core/assistant/sources/homelab
+      - src: "{{ ailab_core_assistant_artifact_root }}/cyberlab-sources.tar.gz"
+        dest: /opt/ailab/core/assistant/sources/cyberlab
+      - src: "{{ ailab_core_assistant_artifact_root }}/runtime.tar.gz"
+        dest: /opt/ailab/core/assistant
+      - src: "{{ ailab_core_assistant_artifact_root }}/embeddings.tar.gz"
+        dest: /opt/ailab/core/assistant
+
+  roles:
+    - role: core_assistant
+

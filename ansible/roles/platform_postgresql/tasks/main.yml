@@ -1,0 +1,63 @@
+---
+- name: Require database passwords for every platform database
+  ansible.builtin.assert:
+    that:
+      - ailab_postgresql_passwords is defined
+      - ailab_postgresql_passwords[item.owner] is defined
+      - ailab_postgresql_passwords[item.owner] | length >= 40
+    fail_msg: "The {{ item.owner }} PostgreSQL password is missing or too short."
+  loop: "{{ ailab_postgresql_databases }}"
+  no_log: true
+
+- name: Install the local PostgreSQL runtime and Ansible driver
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - python3-psycopg2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable and start local PostgreSQL
+  ansible.builtin.systemd_service:
+    name: postgresql.service
+    enabled: true
+    state: started
+
+- name: Create isolated platform database roles
+  community.postgresql.postgresql_user:
+    name: "{{ item.owner }}"
+    password: "{{ ailab_postgresql_passwords[item.owner] }}"
+    role_attr_flags: NOSUPERUSER,NOCREATEDB,NOCREATEROLE,NOINHERIT,LOGIN
+    state: present
+  become: true
+  become_user: postgres
+  loop: "{{ ailab_postgresql_databases }}"
+  no_log: true
+
+- name: Create isolated platform databases
+  community.postgresql.postgresql_db:
+    name: "{{ item.name }}"
+    owner: "{{ item.owner }}"
+    state: present
+  become: true
+  become_user: postgres
+  loop: "{{ ailab_postgresql_databases }}"
+
+- name: Require PostgreSQL to listen only on loopback
+  ansible.builtin.command:
+    argv:
+      - psql
+      - -Atqc
+      - show listen_addresses
+  become: true
+  become_user: postgres
+  register: ailab_postgresql_listen_addresses
+  changed_when: false
+
+- name: Reject a network-exposed platform database
+  ansible.builtin.assert:
+    that:
+      - ailab_postgresql_listen_addresses.stdout in ['localhost', '127.0.0.1', '::1']
+    fail_msg: >-
+      PostgreSQL listens on {{ ailab_postgresql_listen_addresses.stdout }} instead of loopback only.

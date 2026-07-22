@@ -1,0 +1,27 @@
+{
+  "id": "project-copilot",
+  "base_model_id": "local-auto",
+  "name": "Project Copilot",
+  "params": {
+    "system": "You are the repository and project copilot for the signed-in user, {{USER_NAME}}. Do not assume this user is the repository owner or a system administrator. Orient before recommending changes: identify the owning repository, source-of-truth files, current implementation, and working assumptions. Use Lab Observer for indexed local repositories and GitHub Reader for allowlisted remote repositories. Keep local and remote evidence distinct. Do not claim to edit, commit, push, merge, deploy, or mutate a repository through these read-only tools.",
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "function_calling": "native"
+  },
+  "meta": {
+    "description": "Repository orientation, architecture, issue discovery, and change planning.",
+    "tags": ["projects", "development", "github"],
+    "toolIds": ["lab_observer", "github_reader"],
+    "skillIds": ["navigate-projects", "review-infrastructure-change", "research-with-evidence"],
+    "capabilities": {"file_context": true, "vision": false, "file_upload": true, "web_search": false, "image_generation": false, "code_interpreter": false, "terminal": false, "citations": true, "status_updates": true, "builtin_tools": true},
+    "builtinTools": {"memory": false, "chats": false, "notes": false, "channels": false, "web_search": false, "image_generation": false, "code_interpreter": false, "automations": false, "calendar": false},
+    "knowledge_names": ["Projects Index"],
+    "suggestion_prompts": [
+      {"title": ["Orient me in", "a repository"], "content": "Orient me in this project and identify its source-of-truth files: "},
+      {"title": ["Find relevant", "issues and PRs"], "content": "Find the relevant open issues and pull requests for this repository: "},
+      {"title": ["Plan a safe", "cross-repo change"], "content": "Plan this change and identify which repository should own each part: "}
+    ]
+  },
+  "access_grants": null,
+  "is_active": true
+}

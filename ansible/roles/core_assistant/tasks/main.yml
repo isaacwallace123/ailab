@@ -1,0 +1,251 @@
+---
+- name: Require the core assistant deployment inputs
+  ansible.builtin.assert:
+    that:
+      - ailab_core_assistant_api_token | length >= 40
+      - ailab_core_assistant_database_password | length >= 40
+      - ailab_core_assistant_litellm_key | length >= 40
+      - ailab_core_assistant_profile | length > 0
+    fail_msg: Core assistant secrets, profile, or database password are missing.
+  no_log: true
+
+- name: Resolve the host service account identity
+  ansible.builtin.getent:
+    database: passwd
+    key: ailab
+
+- name: Create the core assistant directory tree
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: ailab
+    group: ailab
+    mode: "0750"
+  loop:
+    - "{{ ailab_core_assistant_root }}"
+    - "{{ ailab_core_assistant_root }}/app"
+    - "{{ ailab_core_assistant_root }}/backups"
+    - "{{ ailab_core_assistant_root }}/config"
+    - "{{ ailab_core_assistant_root }}/datasets"
+    - "{{ ailab_core_assistant_root }}/embeddings"
+    - "{{ ailab_core_assistant_root }}/private"
+    - "{{ ailab_core_assistant_root }}/runtime"
+    - "{{ ailab_core_assistant_root }}/sources/ailab"
+    - "{{ ailab_core_assistant_root }}/sources/homelab"
+    - "{{ ailab_core_assistant_root }}/sources/cyberlab"
+
+- name: Expand the reviewed assistant deployment bundles
+  ansible.builtin.unarchive:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: ailab
+    group: ailab
+  loop: "{{ ailab_core_assistant_archives }}"
+
+- name: Install the copied assistant database dump
+  ansible.builtin.copy:
+    src: "{{ ailab_core_assistant_dump_path }}"
+    dest: "{{ ailab_core_assistant_root }}/backups/ailab.dump"
+    owner: ailab
+    group: ailab
+    mode: "0600"
+
+- name: Install the private assistant profile
+  ansible.builtin.copy:
+    content: "{{ ailab_core_assistant_profile }}"
+    dest: "{{ ailab_core_assistant_root }}/private/assistant-profile.md"
+    owner: ailab
+    group: ailab
+    mode: "0600"
+  no_log: true
+
+- name: Install the assistant source allowlist
+  ansible.builtin.template:
+    src: sources.yaml.j2
+    dest: "{{ ailab_core_assistant_root }}/config/sources.yaml"
+    owner: ailab
+    group: ailab
+    mode: "0640"
+
+- name: Install the assistant Compose definition
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ ailab_core_assistant_root }}/compose.yaml"
+    owner: root
+    group: ailab
+    mode: "0640"
+
+- name: Install the root-owned assistant environment
+  ansible.builtin.template:
+    src: assistant.env.j2
+    dest: "{{ ailab_core_assistant_root }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Start the isolated assistant database
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_core_assistant_root }}"
+      - up
+      - -d
+      - assistant-postgres
+  register: ailab_core_assistant_database_start
+  changed_when: "'Started' in ailab_core_assistant_database_start.stderr or 'Created' in ailab_core_assistant_database_start.stderr"
+
+- name: Wait for the assistant database
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_core_assistant_root }}"
+      - exec
+      - -T
+      - assistant-postgres
+      - pg_isready
+      - -U
+      - ailab
+      - -d
+      - ailab
+  register: ailab_core_assistant_database_ready
+  retries: 30
+  delay: 2
+  until: ailab_core_assistant_database_ready.rc == 0
+  changed_when: false
+
+- name: Inspect the assistant database restore marker
+  ansible.builtin.stat:
+    path: "{{ ailab_core_assistant_root }}/.database-restored"
+  register: ailab_core_assistant_restore_marker
+
+- name: Restore the copied assistant database once
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_core_assistant_root }}"
+      - exec
+      - -T
+      - assistant-postgres
+      - pg_restore
+      - --no-owner
+      - --no-privileges
+      - -U
+      - ailab
+      - -d
+      - ailab
+      - /bootstrap/ailab.dump
+  when: not ailab_core_assistant_restore_marker.stat.exists
+  no_log: true
+
+- name: Record the successful database restore
+  ansible.builtin.file:
+    path: "{{ ailab_core_assistant_root }}/.database-restored"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+  when: not ailab_core_assistant_restore_marker.stat.exists
+
+- name: Build and start the core assistant
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-directory
+      - "{{ ailab_core_assistant_root }}"
+      - up
+      - -d
+      - --build
+      - lab-status-assistant
+  register: ailab_core_assistant_start
+  changed_when: "'Started' in ailab_core_assistant_start.stderr or 'Created' in ailab_core_assistant_start.stderr or 'Building' in ailab_core_assistant_start.stderr"
+
+- name: Wait for the core assistant readiness gate
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_core_assistant_port }}/health/ready"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: ailab_core_assistant_ready
+  retries: 90
+  delay: 2
+  until: ailab_core_assistant_ready.status == 200
+  changed_when: false
+
+- name: Require the persistent retrieval backend
+  ansible.builtin.assert:
+    that:
+      - ailab_core_assistant_ready.json.status == "ready"
+      - ailab_core_assistant_ready.json.search_backend == "postgresql-hybrid"
+    fail_msg: The core assistant is not ready with its PostgreSQL retrieval backend.
+
+- name: Verify durable memory isolation between Open WebUI users
+  block:
+    - name: Create a temporary memory for the deployment probe user
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_core_assistant_port }}/api/v1/memories"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ ailab_core_assistant_api_token }}"
+          X-OpenWebUI-User-Id: ailab-deployment-probe-a
+        body_format: json
+        body:
+          kind: fact
+          content: Temporary deployment probe for per-user memory isolation.
+          source: ansible-deployment-probe
+        status_code: 200
+        return_content: true
+      register: ailab_memory_probe
+      changed_when: false
+      no_log: true
+
+    - name: List memories as a different deployment probe user
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_core_assistant_port }}/api/v1/memories"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ ailab_core_assistant_api_token }}"
+          X-OpenWebUI-User-Id: ailab-deployment-probe-b
+        status_code: 200
+        return_content: true
+      register: ailab_other_user_memories
+      changed_when: false
+      no_log: true
+
+    - name: Require the temporary memory to be invisible to the other user
+      ansible.builtin.assert:
+        that:
+          - ailab_memory_probe.json.id not in (ailab_other_user_memories.json | map(attribute='id') | list)
+        fail_msg: Durable assistant memory crossed an Open WebUI user boundary.
+
+    - name: Require cross-user deletion to be denied
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_core_assistant_port }}/api/v1/memories/{{ ailab_memory_probe.json.id }}"
+        method: DELETE
+        headers:
+          Authorization: "Bearer {{ ailab_core_assistant_api_token }}"
+          X-OpenWebUI-User-Id: ailab-deployment-probe-b
+        status_code: 404
+      changed_when: false
+      no_log: true
+  always:
+    - name: Remove the deployment probe memory as its owning user
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_core_assistant_port }}/api/v1/memories/{{ ailab_memory_probe.json.id }}"
+        method: DELETE
+        headers:
+          Authorization: "Bearer {{ ailab_core_assistant_api_token }}"
+          X-OpenWebUI-User-Id: ailab-deployment-probe-a
+        status_code:
+          - 204
+          - 404
+      when: ailab_memory_probe is defined and ailab_memory_probe.json.id is defined
+      changed_when: false
+      no_log: true

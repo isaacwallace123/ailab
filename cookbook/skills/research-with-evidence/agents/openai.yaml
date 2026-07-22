@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research With Evidence"
+  short_description: "Research current topics with cited evidence."
+  default_prompt: "Use -with-evidence to research this question and separate verified facts from inference."

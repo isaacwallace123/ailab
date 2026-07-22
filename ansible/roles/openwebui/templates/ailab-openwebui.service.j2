@@ -1,0 +1,43 @@
+[Unit]
+Description=AI Lab Open WebUI
+Documentation=https://docs.openwebui.com/getting-started/
+After=network-online.target postgresql.service ailab-litellm.service
+Wants=network-online.target postgresql.service
+Requires=ailab-litellm.service
+
+[Service]
+Type=simple
+User=ailab-webui
+Group=ailab-webui
+WorkingDirectory={{ ailab_openwebui_state_dir }}
+Environment=HOME={{ ailab_openwebui_state_dir }}
+EnvironmentFile={{ ailab_openwebui_environment_path }}
+ExecStart={{ ailab_openwebui_install_root }}/venv/bin/open-webui serve --host 0.0.0.0 --port {{ ailab_openwebui_port }}
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+TimeoutStopSec=30
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+DevicePolicy=closed
+ReadWritePaths={{ ailab_openwebui_state_dir }}
+
+[Install]
+WantedBy=multi-user.target

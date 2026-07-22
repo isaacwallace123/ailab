@@ -1,0 +1,13 @@
+---
+ailab_expected_gpu_pci_id: "8086:e212"
+ailab_expected_gpu_label: Intel Arc Pro B50
+ailab_expected_gpu_name_pattern: B50
+ailab_expected_gpu_vulkan_device_id: "0xe212"
+ailab_expected_gpu_vulkan_name: Intel(R) Arc(tm) Pro B50 Graphics
+ailab_expect_data_disk: true
+ailab_expected_data_disk_bytes: 536870912000
+ailab_llama_worker_bind_address: 0.0.0.0
+ailab_llama_worker_allowed_cidrs:
+  - 192.168.0.221/32
+ailab_litellm_primary_api_base: http://127.0.0.1:18090/v1
+ailab_litellm_fast_api_base: http://192.168.0.102:18090/v1

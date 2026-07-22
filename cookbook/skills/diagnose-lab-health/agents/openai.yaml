@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diagnose Lab Health"
+  short_description: "Diagnose current lab health from read-only evidence."
+  default_prompt: "Use $diagnose-lab-health to investigate this lab health question with current runtime evidence and citations."

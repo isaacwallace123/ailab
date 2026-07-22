@@ -1,0 +1,10 @@
+---
+- name: Install and verify the Intel GPU compute baseline
+  hosts: ai_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Configure and validate the Intel compute userspace
+      ansible.builtin.import_role:
+        name: intel_compute

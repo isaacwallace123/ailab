@@ -1,0 +1,11 @@
+{
+  "command": "/review-infrastructure",
+  "name": "Review Infrastructure Change",
+  "content": "Review this proposed infrastructure change:\n\n{{change}}\n\nTarget environment: {{environment}}\n\nCheck scope, replacements or destroys, secrets, network exposure, cross-lab boundaries, persistent data, idempotency, health gates, observability, capacity, and rollback. Separate blockers from suggestions. Provide preview and validation commands, but do not apply anything.",
+  "data": {},
+  "meta": {"description": "Structured pre-apply review for infrastructure changes."},
+  "tags": ["infrastructure", "review", "safety"],
+  "access_grants": null,
+  "commit_message": "AI Lab cookbook v1",
+  "is_production": true
+}

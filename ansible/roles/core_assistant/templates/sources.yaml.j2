@@ -1,0 +1,31 @@
+version: 1
+collections:
+  - id: ailab
+    label: AI Lab
+    root: /sources/ailab
+    includes:
+      - README.md
+      - HANDOFF.md
+      - docs/**/*.md
+      - services/**/*.md
+      - models/**/*.md
+      - datasets/**/*.md
+  - id: homelab
+    label: Homelab
+    root: /sources/homelab
+    includes:
+      - README.md
+      - docs/**/*.md
+      - docs/backstage/catalog/*.yaml
+      - argocd-apps/**/*.yaml
+      - manifests/**/*.yaml
+  - id: cyberlab
+    label: Cyberlab
+    root: /sources/cyberlab
+    includes:
+      - README.md
+      - docs/**/*.md
+      - schemas/*.json
+      - scenarios/**/*.yaml
+      - terraform/**/*.tf
+

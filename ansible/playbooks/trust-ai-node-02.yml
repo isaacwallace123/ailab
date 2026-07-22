@@ -1,0 +1,20 @@
+---
+- name: Trust the reviewed ai-node-02 SSH host key on the Ansible controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    ailab_controller_known_hosts_path: >-
+      {{ lookup('env', 'AILAB_CONTROLLER_KNOWN_HOSTS_PATH')
+         | default('/home/isaac/.ssh/known_hosts', true) }}
+
+  tasks:
+    - name: Install the reviewed host key under its stable alias
+      ansible.builtin.known_hosts:
+        path: "{{ ailab_controller_known_hosts_path }}"
+        name: ai-node-02
+        key: >-
+          {{ lookup('file', playbook_dir ~
+             '/../inventory/production/host_keys/ai-node-02.pub') }}
+        state: present

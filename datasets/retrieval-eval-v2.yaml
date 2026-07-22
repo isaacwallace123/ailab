@@ -1,0 +1,135 @@
+version: 1
+name: lab-status-retrieval-v2
+description: >-
+  Heading-aware lexical retrieval gate with natural-language operational questions spanning the
+  AI lab, homelab, and cyberlab.
+thresholds:
+  hit_rate_at_k: 1.0
+  mean_reciprocal_rank: 0.7
+  citation_validity: 1.0
+cases:
+  - id: intel-runtime-selection
+    query: Which document decides how Intel Arc B50 and B580 inference runtimes are selected?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/adr/0006-benchmark-intel-runtimes-before-selection.md
+        max_rank: 2
+
+  - id: homelab-gitops
+    query: Where is the ArgoCD application descriptor contract and app-of-apps sync organization documented?
+    collections: [homelab]
+    top_k: 5
+    expected_citations:
+      - collection: homelab
+        path: docs/gitops-organization.md
+        max_rank: 2
+
+  - id: cyberlab-windows-client
+    query: What remains to finish the Windows client template and visual scenario system?
+    collections: [cyberlab]
+    top_k: 5
+    expected_citations:
+      - collection: cyberlab
+        path: docs/handoff-win11-and-scenarios.md
+        max_rank: 1
+
+  - id: kubernetes-placement-policy
+    query: Why are AI services allowed on Kubernetes without putting every AI workload there?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/adr/0002-kubernetes-for-ai-services-not-everything.md
+        max_rank: 2
+
+  - id: dataset-governance
+    query: What must be recorded about retention deletion and embeddings before indexing a dataset?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: datasets/README.md
+        max_rank: 2
+
+  - id: cordly-service-boundary
+    query: What identity model allowlist rate limits and approval boundary does Cordly receive?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/platform-contracts.md
+        max_rank: 4
+
+  - id: roadmap-unfinished-priorities
+    query: What are the highest-priority unfinished items in the AI lab roadmap?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/roadmap.md
+        max_rank: 1
+
+  - id: personal-next-work
+    query: What should I work on next in my AI lab?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/roadmap.md
+        max_rank: 1
+
+  - id: openwebui-reboot-recovery
+    query: Will Open WebUI recover automatically after the Proxmox host reboots?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/open-webui.md
+        max_rank: 2
+
+  - id: local-model-routing
+    query: How does the LiteLLM model gateway route local-fast and recover from worker failure?
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/model-gateway.md
+        max_rank: 2
+
+  - id: homelab-metallb-range
+    query: What addresses can the live homelab MetalLB pool allocate?
+    collections: [homelab]
+    top_k: 5
+    expected_citations:
+      - collection: homelab
+        path: manifests/infra/metallb/ipaddresspool.yaml
+        max_rank: 2
+
+  - id: homelab-nfs-server
+    query: What NFS server and paths provide tank-movies tank-tv and nvme-downloads?
+    collections: [homelab]
+    top_k: 5
+    expected_citations:
+      - collection: homelab
+        path: manifests/infra/storage/nfs-volumes.yaml
+        max_rank: 2
+
+  - id: cyberlab-visual-orchestrator
+    query: What component still needs to implement clone network run collect and teardown?
+    collections: [cyberlab]
+    top_k: 5
+    expected_citations:
+      - collection: cyberlab
+        path: docs/handoff-win11-and-scenarios.md
+        max_rank: 2
+
+  - id: cyberlab-isolation-policy
+    query: What do the cyberlab security boundaries say about AI access to attacker and victim networks?
+    collections: [cyberlab]
+    top_k: 5
+    expected_citations:
+      - collection: cyberlab
+        path: docs/security-boundaries.md
+        max_rank: 2

@@ -1,0 +1,144 @@
+---
+- name: Verify the supported guest and GPU kernel baseline
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == ailab_expected_distribution
+      - ansible_distribution_version is version(ailab_expected_distribution_version, '==')
+      - ansible_kernel is version('6.14', '>=')
+    fail_msg: >-
+      Intel compute installation requires Ubuntu 24.04 with kernel 6.14 or newer;
+      found {{ ansible_distribution }} {{ ansible_distribution_version }} on {{ ansible_kernel }}.
+
+- name: Verify xe owns the Intel GPU before changing userspace
+  ansible.builtin.command:
+    argv:
+      - lspci
+      - -nnk
+      - -d
+      - "{{ ailab_expected_gpu_pci_id }}"
+  register: ailab_intel_compute_kernel_binding
+  changed_when: false
+
+- name: Require the accepted Intel GPU kernel binding
+  ansible.builtin.assert:
+    that:
+      - "'Kernel driver in use: xe' in ailab_intel_compute_kernel_binding.stdout"
+    fail_msg: >-
+      Refusing to install GPU userspace before {{ ailab_expected_gpu_label }} is bound to xe:
+      {{ ailab_intel_compute_kernel_binding.stdout }}
+
+- name: Install the Ubuntu repository helper
+  ansible.builtin.apt:
+    name: software-properties-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable Intel's graphics PPA for Ubuntu 24.04
+  ansible.builtin.apt_repository:
+    repo: ppa:kobuk-team/intel-graphics
+    filename: intel-graphics
+    state: present
+    update_cache: true
+
+- name: Install the Intel compute and Vulkan baseline
+  ansible.builtin.apt:
+    name:
+      - clpeak
+      - clinfo
+      - intel-gsc
+      - intel-metrics-discovery
+      - intel-ocloc
+      - intel-opencl-icd
+      - libze-dev
+      - libze-intel-gpu1
+      - libze1
+      - mesa-vulkan-drivers
+      - vulkan-tools
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enumerate OpenCL platforms and devices
+  ansible.builtin.command:
+    argv:
+      - clinfo
+      - -l
+  become: false
+  register: ailab_opencl_devices
+  changed_when: false
+
+- name: Require the Intel OpenCL platform and GPU device
+  ansible.builtin.assert:
+    that:
+      - "'Intel' in ailab_opencl_devices.stdout"
+      - "'Graphics' in ailab_opencl_devices.stdout or 'Arc' in ailab_opencl_devices.stdout"
+    fail_msg: >-
+      Intel OpenCL did not enumerate {{ ailab_expected_gpu_label }}:
+      {{ ailab_opencl_devices.stdout | default('') }}
+      {{ ailab_opencl_devices.stderr | default('') }}
+
+- name: Execute a bounded OpenCL compute smoke test
+  ansible.builtin.command:
+    argv:
+      - clpeak
+      - --compute-sp
+  become: false
+  register: ailab_opencl_compute_smoke
+  changed_when: false
+
+- name: Require successful single-precision GPU compute
+  ansible.builtin.assert:
+    that:
+      - "'GFLOPS' in ailab_opencl_compute_smoke.stdout"
+      - "ailab_expected_gpu_name_pattern in ailab_opencl_compute_smoke.stdout"
+    fail_msg: >-
+      OpenCL enumerated {{ ailab_expected_gpu_label }} but its compute smoke test did not complete:
+      {{ ailab_opencl_compute_smoke.stdout | default('') }}
+      {{ ailab_opencl_compute_smoke.stderr | default('') }}
+
+- name: Inspect the Level Zero GPU driver library
+  ansible.builtin.command:
+    argv:
+      - ldconfig
+      - -p
+  register: ailab_level_zero_libraries
+  changed_when: false
+
+- name: Require the Intel Level Zero GPU driver
+  ansible.builtin.assert:
+    that:
+      - "'libze_intel_gpu.so.1' in ailab_level_zero_libraries.stdout"
+    fail_msg: The Intel Level Zero GPU driver is missing from the dynamic linker cache.
+
+- name: Enumerate Vulkan devices
+  ansible.builtin.command:
+    argv:
+      - vulkaninfo
+      - --summary
+  become: false
+  environment:
+    XDG_RUNTIME_DIR: /tmp/ailab-vulkan-runtime
+  register: ailab_vulkan_devices
+  changed_when: false
+
+- name: Require the Intel Vulkan device
+  ansible.builtin.assert:
+    that:
+      - "'Intel' in ailab_vulkan_devices.stdout"
+      - "'Arc' in ailab_vulkan_devices.stdout or 'B50' in ailab_vulkan_devices.stdout"
+    fail_msg: >-
+      Vulkan did not enumerate the passed-through Intel Arc GPU:
+      {{ ailab_vulkan_devices.stdout | default('') }}
+      {{ ailab_vulkan_devices.stderr | default('') }}
+
+- name: Report the accepted Intel compute baseline
+  ansible.builtin.debug:
+    msg:
+      - "{{ ailab_opencl_devices.stdout_lines }}"
+      - "{{ ailab_opencl_compute_smoke.stdout_lines }}"
+      - "Intel Level Zero driver: present"
+      - >-
+        {{ ailab_vulkan_devices.stdout_lines
+           | select('search', 'vendorID|deviceID|deviceName|driverName')
+           | list }}

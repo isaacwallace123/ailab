@@ -1,0 +1,16 @@
+---
+ailab_core_service_user: ailab
+ailab_core_service_group: ailab
+ailab_core_directories:
+  - /opt/ailab/core
+  - /opt/ailab/core/compose
+  - /var/lib/ailab
+  - /var/lib/ailab/postgres
+  - /var/lib/ailab/open-webui
+  - /var/backups/ailab
+
+ailab_core_packages:
+  - docker.io
+  - docker-compose-v2
+  - prometheus-node-exporter
+

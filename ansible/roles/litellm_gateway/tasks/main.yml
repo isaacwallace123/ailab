@@ -1,0 +1,411 @@
+---
+- name: Require a strong controller-generated LiteLLM master key
+  ansible.builtin.assert:
+    that:
+      - ailab_litellm_master_key is defined
+      - ailab_litellm_master_key | length >= 40
+    fail_msg: The LiteLLM master key is missing or too short.
+  no_log: true
+
+- name: Require database and virtual-key secrets
+  ansible.builtin.assert:
+    that:
+      - ailab_litellm_database_password is defined
+      - ailab_litellm_database_password | length >= 40
+      - ailab_litellm_virtual_key_secrets is defined
+      - ailab_litellm_virtual_key_secrets[item.key_alias] is defined
+      - ailab_litellm_virtual_key_secrets[item.key_alias] | length >= 40
+    fail_msg: "The {{ item.key_alias }} LiteLLM secret is missing or too short."
+  loop: "{{ ailab_litellm_virtual_key_policies }}"
+  no_log: true
+
+- name: Install the isolated Python runtime dependency
+  ansible.builtin.apt:
+    name:
+      - libatomic1
+      - python3-venv
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the unprivileged gateway account
+  ansible.builtin.user:
+    name: ailab-gateway
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ ailab_litellm_state_dir }}"
+    create_home: true
+    groups:
+      - ailab-config
+    append: true
+
+- name: Create LiteLLM installation and state directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ ailab_litellm_install_root }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ ailab_litellm_state_dir }}"
+      owner: ailab-gateway
+      group: ailab-gateway
+      mode: "0750"
+
+- name: Create the dedicated LiteLLM virtual environment
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -m
+      - venv
+      - "{{ ailab_litellm_install_root }}/venv"
+    creates: "{{ ailab_litellm_install_root }}/venv/bin/python"
+
+- name: Install the pinned LiteLLM proxy release
+  ansible.builtin.pip:
+    name:
+      - "litellm[proxy]=={{ ailab_litellm_version }}"
+      - prisma==0.11.0
+    executable: "{{ ailab_litellm_install_root }}/venv/bin/pip"
+    extra_args: --disable-pip-version-check
+  register: ailab_litellm_package
+
+- name: Create the unprivileged Prisma binary cache
+  ansible.builtin.file:
+    path: "{{ ailab_litellm_state_dir }}/prisma-cache"
+    state: directory
+    owner: ailab-gateway
+    group: ailab-gateway
+    mode: "0750"
+
+- name: Fetch Prisma engines into the gateway-owned cache
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_litellm_install_root }}/venv/bin/prisma"
+      - py
+      - fetch
+  environment:
+    HOME: "{{ ailab_litellm_state_dir }}"
+    PRISMA_BINARY_CACHE_DIR: "{{ ailab_litellm_state_dir }}/prisma-cache"
+    PATH: >-
+      {{ ailab_litellm_install_root }}/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  become: true
+  become_user: ailab-gateway
+  changed_when: false
+
+- name: Inspect the gateway-cache Prisma generation marker
+  ansible.builtin.stat:
+    path: "{{ ailab_litellm_install_root }}/.prisma-gateway-cache-v1"
+  register: ailab_litellm_prisma_generation_marker
+
+- name: Generate the LiteLLM Prisma client for the native install
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_litellm_install_root }}/venv/bin/prisma"
+      - generate
+      - --schema
+      - "{{ ailab_litellm_install_root }}/venv/lib/python3.12/site-packages/litellm/proxy/schema.prisma"
+  environment:
+    DATABASE_URL: >-
+      postgresql://litellm:{{ ailab_litellm_database_password }}@127.0.0.1:5432/litellm
+    PATH: >-
+      {{ ailab_litellm_install_root }}/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PRISMA_BINARY_CACHE_DIR: "{{ ailab_litellm_state_dir }}/prisma-cache"
+  register: ailab_litellm_prisma_client
+  when: >-
+    ailab_litellm_package.changed or
+    not ailab_litellm_prisma_generation_marker.stat.exists
+  no_log: true
+
+- name: Record gateway-cache Prisma client generation
+  ansible.builtin.file:
+    path: "{{ ailab_litellm_install_root }}/.prisma-gateway-cache-v1"
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when: ailab_litellm_prisma_client.changed
+
+- name: Synchronize the LiteLLM schema without accepting data loss
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_litellm_install_root }}/venv/bin/prisma"
+      - db
+      - push
+      - --schema
+      - "{{ ailab_litellm_install_root }}/venv/lib/python3.12/site-packages/litellm/proxy/schema.prisma"
+      - --skip-generate
+  environment:
+    DATABASE_URL: >-
+      postgresql://litellm:{{ ailab_litellm_database_password }}@127.0.0.1:5432/litellm
+    PATH: >-
+      {{ ailab_litellm_install_root }}/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PRISMA_BINARY_CACHE_DIR: "{{ ailab_litellm_state_dir }}/prisma-cache"
+  register: ailab_litellm_schema_sync
+  changed_when: "'already in sync' not in ailab_litellm_schema_sync.stdout"
+  no_log: true
+
+- name: Verify the installed LiteLLM version
+  ansible.builtin.command:
+    argv:
+      - "{{ ailab_litellm_install_root }}/venv/bin/python"
+      - -c
+      - >-
+        import importlib.metadata;
+        print(importlib.metadata.version('litellm'))
+  register: ailab_litellm_installed_version
+  changed_when: false
+
+- name: Require the exact reviewed LiteLLM release
+  ansible.builtin.assert:
+    that:
+      - ailab_litellm_installed_version.stdout == ailab_litellm_version
+    fail_msg: >-
+      Expected LiteLLM {{ ailab_litellm_version }}, found
+      {{ ailab_litellm_installed_version.stdout }}.
+
+- name: Install the secret-free LiteLLM routing configuration
+  ansible.builtin.template:
+    src: litellm.yaml.j2
+    dest: "{{ ailab_litellm_config_path }}"
+    owner: root
+    group: ailab-config
+    mode: "0640"
+  register: ailab_litellm_config
+
+- name: Install the root-owned LiteLLM environment file
+  ansible.builtin.template:
+    src: litellm.env.j2
+    dest: "{{ ailab_litellm_environment_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: ailab_litellm_environment
+  no_log: true
+
+- name: Install the hardened LiteLLM systemd unit
+  ansible.builtin.template:
+    src: ailab-litellm.service.j2
+    dest: /etc/systemd/system/ailab-litellm.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: ailab_litellm_unit
+
+- name: Allow approved clients to reach the authenticated model gateway
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    to_port: "{{ ailab_litellm_port | string }}"
+    from_ip: "{{ item }}"
+    comment: Authenticated AI lab LiteLLM gateway
+  loop: "{{ ailab_litellm_allowed_cidrs }}"
+
+- name: Reload systemd after changing the gateway unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: ailab_litellm_unit.changed
+
+- name: Enable and start the LiteLLM gateway
+  ansible.builtin.systemd_service:
+    name: ailab-litellm.service
+    enabled: true
+    state: started
+  register: ailab_litellm_service
+
+- name: Restart LiteLLM after package or configuration changes
+  ansible.builtin.systemd_service:
+    name: ailab-litellm.service
+    state: restarted
+  when: >-
+    (ailab_litellm_package.changed or ailab_litellm_config.changed or
+     ailab_litellm_prisma_client.changed or ailab_litellm_schema_sync.changed or
+     ailab_litellm_environment.changed or ailab_litellm_unit.changed) and
+    not ailab_litellm_service.changed
+
+- name: Wait for LiteLLM liveliness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_litellm_port }}/health/liveliness"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: ailab_litellm_liveness
+  retries: 60
+  delay: 2
+  until: ailab_litellm_liveness.status == 200
+  changed_when: false
+
+- name: List authenticated LiteLLM model aliases
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_litellm_port }}/v1/models"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ ailab_litellm_master_key }}"
+    status_code: 200
+    return_content: true
+  register: ailab_litellm_models
+  changed_when: false
+  no_log: true
+
+- name: Require all stable model aliases
+  ansible.builtin.assert:
+    that:
+      - "'local-primary' in (ailab_litellm_models.json.data | map(attribute='id') | list)"
+      - "'local-fast' in (ailab_litellm_models.json.data | map(attribute='id') | list)"
+      - "'local-auto' in (ailab_litellm_models.json.data | map(attribute='id') | list)"
+      - >-
+        ailab_openai_api_key | default('') | length == 0 or
+        'cloud-openai' in (ailab_litellm_models.json.data | map(attribute='id') | list)
+      - >-
+        ailab_anthropic_api_key | default('') | length == 0 or
+        'cloud-claude' in (ailab_litellm_models.json.data | map(attribute='id') | list)
+      - >-
+        ailab_gemini_api_key | default('') | length == 0 or
+        'cloud-gemini' in (ailab_litellm_models.json.data | map(attribute='id') | list)
+    fail_msg: LiteLLM did not publish all local model aliases.
+  no_log: true
+
+- name: Find existing scoped LiteLLM client identities
+  ansible.builtin.uri:
+    url: >-
+      http://127.0.0.1:{{ ailab_litellm_port }}/key/list?key_alias={{ item.key_alias | urlencode }}&size=10
+    method: GET
+    headers:
+      Authorization: "Bearer {{ ailab_litellm_master_key }}"
+    status_code: 200
+    return_content: true
+  loop: "{{ ailab_litellm_virtual_key_policies }}"
+  register: ailab_litellm_existing_keys
+  changed_when: false
+  no_log: true
+
+- name: Create missing scoped LiteLLM client identities
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_litellm_port }}/key/generate"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ ailab_litellm_master_key }}"
+    body_format: json
+    body:
+      key: "{{ ailab_litellm_virtual_key_secrets[item.item.key_alias] }}"
+      key_alias: "{{ item.item.key_alias }}"
+      user_id: "{{ item.item.user_id }}"
+      models: "{{ item.item.models }}"
+      rpm_limit: "{{ item.item.rpm_limit }}"
+      tpm_limit: "{{ item.item.tpm_limit }}"
+      max_parallel_requests: "{{ item.item.max_parallel_requests }}"
+      max_budget: "{{ item.item.max_budget }}"
+      budget_duration: 30d
+      metadata:
+        managed_by: ansible
+        environment: production
+    status_code: 200
+    return_content: true
+  loop: "{{ ailab_litellm_existing_keys.results }}"
+  when: item.json.total_count | int == 0
+  register: ailab_litellm_created_keys
+  no_log: true
+
+- name: Reconcile existing scoped LiteLLM client policies
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_litellm_port }}/key/update"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ ailab_litellm_master_key }}"
+    body_format: json
+    body:
+      key: "{{ ailab_litellm_virtual_key_secrets[item.item.key_alias] }}"
+      key_alias: "{{ item.item.key_alias }}"
+      user_id: "{{ item.item.user_id }}"
+      models: "{{ item.item.models }}"
+      rpm_limit: "{{ item.item.rpm_limit }}"
+      tpm_limit: "{{ item.item.tpm_limit }}"
+      max_parallel_requests: "{{ item.item.max_parallel_requests }}"
+      max_budget: "{{ item.item.max_budget }}"
+      budget_duration: 30d
+      metadata:
+        managed_by: ansible
+        environment: production
+    status_code: 200
+    return_content: true
+  loop: "{{ ailab_litellm_existing_keys.results }}"
+  when: item.json.total_count | int > 0
+  register: ailab_litellm_updated_keys
+  changed_when: false
+  no_log: true
+
+- name: Validate each scoped client identity
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_litellm_port }}/v1/models"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ ailab_litellm_virtual_key_secrets[item.key_alias] }}"
+    status_code: 200
+    return_content: true
+  loop: "{{ ailab_litellm_virtual_key_policies }}"
+  register: ailab_litellm_virtual_key_models
+  changed_when: false
+  no_log: true
+
+- name: Require the automatic route for every scoped client
+  ansible.builtin.assert:
+    that:
+      - "'local-auto' in (item.json.data | map(attribute='id') | list)"
+    fail_msg: "The {{ item.item.key_alias }} identity cannot access local-auto."
+  loop: "{{ ailab_litellm_virtual_key_models.results }}"
+  no_log: true
+
+- name: Exercise each LiteLLM route through its real worker
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ailab_litellm_port }}/v1/chat/completions"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ ailab_litellm_master_key }}"
+    body_format: json
+    body:
+      model: "{{ item }}"
+      temperature: 0
+      max_tokens: 32
+      messages:
+        - role: system
+          content: Follow the user's output-format instruction exactly.
+        - role: user
+          content: "Reply with the exact token AILAB_{{ item | upper | replace('-', '_') }}_OK and nothing else."
+    status_code: 200
+    return_content: true
+    timeout: 240
+  loop:
+    - local-primary
+    - local-fast
+    - local-auto
+  register: ailab_litellm_route_checks
+  changed_when: false
+  no_log: true
+
+- name: Require successful responses from both routed workers
+  ansible.builtin.assert:
+    that:
+      - ailab_litellm_route_checks.results | length == 3
+      - "'AILAB_LOCAL_PRIMARY_OK' in ailab_litellm_route_checks.results[0].json.choices[0].message.content"
+      - "'AILAB_LOCAL_FAST_OK' in ailab_litellm_route_checks.results[1].json.choices[0].message.content"
+      - "'AILAB_LOCAL_AUTO_OK' in ailab_litellm_route_checks.results[2].json.choices[0].message.content"
+    fail_msg: One or more LiteLLM worker routes failed the default non-thinking response gate.
+  no_log: true
+
+- name: Report the accepted LiteLLM routes
+  ansible.builtin.debug:
+    msg:
+      - "LiteLLM {{ ailab_litellm_version }} is healthy on port {{ ailab_litellm_port }}."
+      - "local-primary -> {{ ailab_litellm_primary_api_base }}"
+      - "local-fast -> {{ ailab_litellm_fast_api_base }}"
+      - "local-auto -> local-fast, then local-primary on provider failure"
+      - >-
+        Optional cloud routes: OpenAI={{ 'enabled' if ailab_openai_api_key | default('') | length > 0 else 'disabled' }},
+        Claude={{ 'enabled' if ailab_anthropic_api_key | default('') | length > 0 else 'disabled' }},
+        Gemini={{ 'enabled' if ailab_gemini_api_key | default('') | length > 0 else 'disabled' }}
+      - "{{ ailab_litellm_virtual_key_policies | length }} scoped client identities are reconciled."

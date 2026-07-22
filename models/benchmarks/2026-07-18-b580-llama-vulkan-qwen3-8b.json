@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-18T18:52:31Z",
+  "status": "pass_initial_candidate_gate",
+  "scope": "realistic single-GPU Vulkan performance and API correctness baseline",
+  "host": {
+    "guest": "ai-node-02",
+    "cpu": "13th Gen Intel Core i7-13700KF",
+    "vcpus": 8,
+    "memory_gib": 16,
+    "gpu": "Intel Arc B580 Graphics (BMG G21)",
+    "gpu_vram_gib": 12,
+    "gpu_pci_id": "8086:e20b",
+    "kernel": "7.0.0-28-generic"
+  },
+  "runtime": {
+    "name": "llama.cpp",
+    "backend": "Vulkan",
+    "device": "Vulkan0",
+    "release": "b10066",
+    "commit": "86a9c79f866799eb0e7e89c03578ccfbcc5d808e",
+    "gpu_layers": 99,
+    "flash_attention": true
+  },
+  "model": {
+    "repository": "Qwen/Qwen3-8B-GGUF",
+    "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+    "file": "Qwen3-8B-Q4_K_M.gguf",
+    "loaded_size_bytes": 5021827072,
+    "parameters": 8190735360,
+    "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "license": "Apache-2.0"
+  },
+  "benchmark": {
+    "tool": "llama-bench",
+    "repetitions": 3,
+    "prompt_512": {
+      "average_tokens_per_second": 798.048095,
+      "standard_deviation_tokens_per_second": 1.47491
+    },
+    "prompt_4096": {
+      "average_tokens_per_second": 552.570336,
+      "standard_deviation_tokens_per_second": 0.274366
+    },
+    "generation_128": {
+      "average_tokens_per_second": 27.653418,
+      "standard_deviation_tokens_per_second": 0.01415
+    }
+  },
+  "quality_gates": {
+    "schema_constrained_json": {
+      "status": "pass",
+      "expected": {
+        "status": "healthy",
+        "ready_nodes": 3,
+        "alerts": 0
+      }
+    },
+    "citation_grounding": {
+      "status": "pass",
+      "required_citation": "[source:k8s-snapshot]"
+    },
+    "api_bind": "127.0.0.1:18081",
+    "service_state_after_test": "disabled and stopped"
+  },
+  "compute_smoke": {
+    "tool": "clpeak --compute-sp",
+    "float_gflops": 14547.46,
+    "device": "Intel(R) Arc(TM) B580 Graphics"
+  },
+  "remaining_gates": [
+    "16K and highest-stable context",
+    "concurrency 2 and 4",
+    "tool-call validity",
+    "long-duration stability and recovery",
+    "SYCL and vLLM XPU comparison"
+  ],
+  "known_observations": [
+    "The B580 passed host VFIO reset, guest xe, OpenCL, Level Zero, Vulkan, and API gates.",
+    "The candidate API unit finished disabled and inactive with localhost-only binding."
+  ]
+}

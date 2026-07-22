@@ -1,0 +1,62 @@
+version: 1
+name: lab-status-retrieval-v1
+description: >-
+  Initial lexical retrieval and citation baseline spanning the AI lab, homelab, and cyberlab.
+thresholds:
+  hit_rate_at_k: 1.0
+  mean_reciprocal_rank: 0.55
+  citation_validity: 1.0
+cases:
+  - id: intel-runtime-selection
+    query: Intel Arc B50 B580 runtime benchmark
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/hardware-and-placement.md
+        max_rank: 3
+
+  - id: homelab-gitops
+    query: Kubernetes GitOps ArgoCD applications
+    collections: [homelab]
+    top_k: 5
+    expected_citations:
+      - collection: homelab
+        path: docs/gitops-organization.md
+        max_rank: 3
+
+  - id: cyberlab-windows-client
+    query: Windows client Packer template
+    collections: [cyberlab]
+    top_k: 5
+    expected_citations:
+      - collection: cyberlab
+        path: docs/handoff-win11-and-scenarios.md
+        max_rank: 3
+
+  - id: kubernetes-placement-policy
+    query: Kubernetes should not be forced onto every AI workload
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/kubernetes-strategy.md
+        max_rank: 1
+
+  - id: dataset-governance
+    query: dataset retention embeddings deletion path
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/data-governance.md
+        max_rank: 2
+
+  - id: cordly-service-boundary
+    query: Cordly Discord service identity rate limits
+    collections: [ailab]
+    top_k: 5
+    expected_citations:
+      - collection: ailab
+        path: docs/platform-contracts.md
+        max_rank: 3

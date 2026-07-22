@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve AI Cookbook"
+  short_description: "Capture tested improvements in the AI cookbook."
+  default_prompt: "Use -ai-cookbook to capture this workflow or failure as a tested cookbook improvement."

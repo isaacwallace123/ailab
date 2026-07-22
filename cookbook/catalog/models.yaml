@@ -1,0 +1,71 @@
+version: 1
+updated: 2026-07-19
+workers:
+  ai-node-01:
+    gpu: Intel Arc Pro B50
+    vram_gib: 16
+    role: quality-and-capacity
+  ai-node-02:
+    gpu: Intel Arc B580
+    vram_gib: 12
+    role: low-latency
+routes:
+  local-fast:
+    worker: ai-node-02
+    purpose: Default low-latency local chat and tool calls.
+  local-primary:
+    worker: ai-node-01
+    purpose: Larger context and quality-oriented workloads.
+  local-auto:
+    worker: ai-node-02
+    fallback_worker: ai-node-01
+    purpose: General local route with tested worker fallback.
+models:
+  - id: qwen3-8b-q4km-b580
+    family: Qwen3
+    parameters_billions: 8
+    quantization: Q4_K_M
+    runtime: llama.cpp-vulkan
+    status: active
+    route: local-fast
+    required_vram_gib: 8
+    tasks: [chat, lab-ops, projects, tool-use, finance-education]
+    measured_generation_tokens_per_second: 27.65
+    evidence: models/benchmarks/2026-07-18-b580-llama-vulkan-qwen3-8b.json
+  - id: qwen3-8b-q4km-b50
+    family: Qwen3
+    parameters_billions: 8
+    quantization: Q4_K_M
+    runtime: llama.cpp-vulkan
+    status: active
+    route: local-primary
+    required_vram_gib: 8
+    tasks: [chat, lab-ops, projects, tool-use, finance-education]
+    measured_generation_tokens_per_second: 16.11
+    evidence: models/benchmarks/2026-07-18-b50-llama-vulkan-qwen3-8b.json
+  - id: qwen3-14b-q4-candidate
+    family: Qwen3
+    parameters_billions: 14
+    quantization: Q4
+    runtime: llama.cpp-vulkan
+    status: candidate
+    preferred_worker: ai-node-01
+    required_vram_gib: 12
+    tasks: [reasoning, coding, synthesis, tool-use]
+    promotion_gates: [structured-output, long-context, concurrency, recovery, grounded-evaluation]
+  - id: qwen3-embedding-0.6b-candidate
+    family: Qwen3 Embedding
+    parameters_billions: 0.6
+    runtime: benchmark-required
+    status: candidate
+    required_vram_gib: 2
+    tasks: [embedding, retrieval]
+    promotion_gates: [retrieval-v2, semantic-only, latency, memory]
+  - id: qwen3-reranker-0.6b-candidate
+    family: Qwen3 Reranker
+    parameters_billions: 0.6
+    runtime: benchmark-required
+    status: candidate
+    required_vram_gib: 2
+    tasks: [reranking, retrieval]
+    promotion_gates: [retrieval-v2, adversarial-retrieval, latency]

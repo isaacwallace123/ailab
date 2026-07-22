@@ -1,0 +1,38 @@
+---
+- name: Allow only the accepted AI core to reach both model workers
+  hosts: ai_nodes
+  become: true
+  gather_facts: false
+
+  vars:
+    ailab_obsolete_core_cidrs:
+      - 192.168.0.101/32
+      - 192.168.0.103/32
+
+  tasks:
+    - name: Allow the configured AI core source to reach llama.cpp
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: tcp
+        to_port: "{{ ailab_llama_worker_port | string }}"
+        from_ip: "{{ item }}"
+        comment: AI lab model gateway to llama worker
+      loop: "{{ ailab_llama_worker_allowed_cidrs }}"
+
+    - name: Remove obsolete AI core source rules
+      community.general.ufw:
+        rule: allow
+        delete: true
+        direction: in
+        proto: tcp
+        to_port: "{{ ailab_llama_worker_port | string }}"
+        from_ip: "{{ item }}"
+      loop: "{{ ailab_obsolete_core_cidrs }}"
+
+    - name: Wait for the local worker health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ailab_llama_worker_port }}/health"
+        method: GET
+        status_code: 200
+      changed_when: false

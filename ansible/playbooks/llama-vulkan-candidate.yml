@@ -1,0 +1,10 @@
+---
+- name: Benchmark the first realistic llama.cpp Vulkan model candidate
+  hosts: ai_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Download and benchmark the reviewed 8B candidate
+      ansible.builtin.import_role:
+        name: llama_vulkan_candidate

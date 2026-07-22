@@ -1,0 +1,47 @@
+---
+- name: Build the stable AI core service plane
+  hosts: ai_core
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify the immutable AI core identity
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == "ai-core-01"
+          - ansible_hostname == "ai-core-01"
+          - ansible_distribution == ailab_expected_distribution
+          - ansible_distribution_version is version(ailab_expected_distribution_version, "==")
+          - ansible_architecture == "x86_64"
+          - ansible_processor_vcpus | int == 8
+          - ansible_memtotal_mb | int >= 15000
+        fail_msg: Refusing to configure a host that does not match the ai-core-01 contract.
+
+    - name: Verify the root disk has the expected capacity
+      ansible.builtin.assert:
+        that:
+          - ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first | int >= 90000000000
+        fail_msg: The ai-core-01 root filesystem is smaller than the planned 100 GB disk.
+
+  roles:
+    - role: common
+    - role: ai_core
+
+  post_tasks:
+    - name: Verify Docker Compose is available
+      ansible.builtin.command: docker compose version
+      register: docker_compose_version
+      changed_when: false
+
+    - name: Verify the host firewall is active
+      ansible.builtin.command: ufw status
+      register: ufw_status
+      changed_when: false
+      failed_when: "'Status: active' not in ufw_status.stdout"
+
+    - name: Report the installed service-plane runtime
+      ansible.builtin.debug:
+        msg:
+          - "{{ docker_compose_version.stdout }}"
+          - "IPv4: {{ ansible_default_ipv4.address }}"
+

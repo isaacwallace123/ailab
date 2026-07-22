@@ -1,0 +1,30 @@
+---
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: AI Lab Search
+  enable_metrics: true
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: auto
+  formats:
+    - html
+    - json
+
+server:
+  bind_address: 0.0.0.0
+  port: 8080
+  secret_key: "{{ ailab_searxng_secret_key }}"
+  limiter: false
+  image_proxy: true
+  method: GET
+
+outgoing:
+  request_timeout: {{ ailab_searxng_request_timeout_seconds }}
+  max_request_timeout: {{ ailab_searxng_max_request_timeout_seconds }}
+  pool_connections: 50
+  pool_maxsize: 10
+

@@ -1,0 +1,11 @@
+{
+  "command": "/evidence-research",
+  "name": "Evidence Research",
+  "content": "Research this question as of {{CURRENT_DATE}}: {{question}}. Start with relevant local constraints, then use current primary sources. Separate verified facts, inference, and recommendation. Compare options against privacy, hardware, maintenance, and cost constraints. Cite time-sensitive claims and end with a small validation experiment.",
+  "data": {},
+  "meta": {"description": "Current research with authoritative sources and explicit inference."},
+  "tags": ["research", "citations"],
+  "access_grants": null,
+  "commit_message": "AI Lab cookbook v1",
+  "is_production": true
+}

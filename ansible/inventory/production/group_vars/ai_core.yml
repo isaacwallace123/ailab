@@ -1,0 +1,145 @@
+---
+ailab_admin_cidrs:
+  - 192.168.0.138/32
+  - fe80::7656:3cff:fe49:bad7/128
+
+ailab_expected_distribution: Ubuntu
+ailab_expected_distribution_version: "24.04"
+
+ailab_core_mac_address: bc:24:11:09:a0:47
+ailab_core_ipv4_address: 192.168.0.221
+ailab_core_ipv4_prefix: 24
+ailab_core_ipv4_gateway: 192.168.0.1
+ailab_core_dns_servers:
+  - 1.1.1.1
+  - 9.9.9.9
+
+ailab_base_packages:
+  - ca-certificates
+  - curl
+  - git
+  - htop
+  - jq
+  - lshw
+  - pciutils
+  - qemu-guest-agent
+
+ailab_llama_worker_port: 18090
+ailab_llama_worker_model_alias: ailab-qwen3-8b
+
+ailab_litellm_version: 1.92.0
+ailab_litellm_port: 4000
+ailab_litellm_install_root: /opt/ailab/gateways/litellm
+ailab_litellm_state_dir: /var/lib/ailab-gateway
+ailab_litellm_config_path: /etc/ailab/litellm.yaml
+ailab_litellm_environment_path: /etc/ailab/litellm.env
+ailab_litellm_local_worker_required: false
+ailab_litellm_primary_api_base: http://192.168.0.101:18090/v1
+ailab_litellm_fast_api_base: http://192.168.0.102:18090/v1
+ailab_litellm_openai_model_id: gpt-5.6-sol
+ailab_litellm_anthropic_model_id: claude-fable-5
+ailab_litellm_gemini_model_id: gemini-3.5-flash
+ailab_litellm_allowed_cidrs:
+  - 192.168.0.138/32
+ailab_litellm_virtual_key_policies:
+  - key_alias: personal
+    user_id: isaac
+    models: >-
+      {{ ['local-auto', 'local-fast', 'local-primary']
+         + (['cloud-openai'] if (ailab_openai_api_key | default('') | length > 0) else [])
+         + (['cloud-claude'] if (ailab_anthropic_api_key | default('') | length > 0) else [])
+         + (['cloud-gemini'] if (ailab_gemini_api_key | default('') | length > 0) else []) }}
+    rpm_limit: 60
+    tpm_limit: 120000
+    max_parallel_requests: 2
+    max_budget: 5.0
+  - key_alias: open-webui
+    user_id: open-webui
+    models: >-
+      {{ ['local-auto', 'local-fast', 'local-primary']
+         + (['cloud-openai'] if (ailab_openai_api_key | default('') | length > 0) else [])
+         + (['cloud-claude'] if (ailab_anthropic_api_key | default('') | length > 0) else [])
+         + (['cloud-gemini'] if (ailab_gemini_api_key | default('') | length > 0) else []) }}
+    rpm_limit: 30
+    tpm_limit: 120000
+    max_parallel_requests: 2
+    max_budget: 2.0
+  - key_alias: orchestrator
+    user_id: lab-status-assistant
+    models: [local-auto]
+    rpm_limit: 30
+    tpm_limit: 120000
+    max_parallel_requests: 2
+    max_budget: 2.0
+  - key_alias: codex
+    user_id: codex
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 20
+    tpm_limit: 80000
+    max_parallel_requests: 1
+    max_budget: 2.0
+  - key_alias: claude
+    user_id: claude
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 20
+    tpm_limit: 80000
+    max_parallel_requests: 1
+    max_budget: 2.0
+  - key_alias: gemini
+    user_id: gemini
+    models: [local-auto, local-fast, local-primary]
+    rpm_limit: 20
+    tpm_limit: 80000
+    max_parallel_requests: 1
+    max_budget: 2.0
+  - key_alias: cordly
+    user_id: cordly
+    models: [local-auto]
+    rpm_limit: 15
+    tpm_limit: 60000
+    max_parallel_requests: 1
+    max_budget: 1.0
+
+ailab_postgresql_databases:
+  - name: litellm
+    owner: litellm
+  - name: openwebui
+    owner: openwebui
+
+ailab_openwebui_version: 0.10.2
+ailab_openwebui_psycopg2_version: 2.9.12
+ailab_openwebui_port: 8080
+ailab_openwebui_assistant_port: 18088
+ailab_openwebui_install_root: /opt/ailab/interfaces/open-webui
+ailab_openwebui_state_dir: /var/lib/ailab-openwebui
+ailab_openwebui_environment_path: /etc/ailab/open-webui.env
+ailab_openwebui_admin_email: isaac@ailab.local
+ailab_openwebui_public_url: http://192.168.0.221:8080
+# Open WebUI is the authenticated family-facing UI. Keep model gateways and
+# administrative APIs workstation-only, but permit the trusted home LAN here so
+# phones and tablets can use the UI without per-device DHCP reservations.
+ailab_openwebui_allowed_cidrs:
+  - 192.168.0.0/24
+ailab_searxng_version: 2026.7.18-277d8469c
+ailab_searxng_port: 18888
+ailab_docling_version: v1.21.0
+ailab_docling_port: 15001
+ailab_docling_max_file_size_bytes: 52428800
+ailab_docling_max_pages: 200
+ailab_docling_max_document_timeout_seconds: 900
+ailab_research_gateway_version: 0.2.0
+ailab_research_gateway_port: 18089
+ailab_research_gateway_max_response_bytes: 26214400
+ailab_research_gateway_max_text_chars: 100000
+ailab_research_gateway_max_redirects: 5
+ailab_research_gateway_timeout_seconds: 30
+ailab_research_gateway_max_concurrency: 4
+ailab_openwebui_web_search_engine: searxng
+ailab_openwebui_searxng_query_url: >-
+  http://127.0.0.1:{{ ailab_searxng_port }}/search?q=<query>
+ailab_openwebui_web_search_result_count: 8
+ailab_openwebui_web_search_concurrent_requests: 1
+ailab_openwebui_web_loader_concurrent_requests: 3
+ailab_openwebui_web_fetch_max_content_length: 20000
+ailab_openwebui_web_fetch_filter_list: >-
+  !localhost,!127.0.0.1,!192.168.0.1,!192.168.0.101,!192.168.0.102,!192.168.0.221

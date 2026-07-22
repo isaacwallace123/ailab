@@ -1,0 +1,22 @@
+name: ailab-extraction
+
+services:
+  docling:
+    image: quay.io/docling-project/docling-serve-cpu:{{ ailab_docling_version }}
+    env_file:
+      - ./docling.env
+    ports:
+      - "127.0.0.1:{{ ailab_docling_port }}:5001"
+    volumes:
+      - {{ ailab_docling_cache_dir }}:/opt/app-root/src/.cache
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    mem_limit: {{ ailab_docling_memory_limit }}
+    cpus: "{{ ailab_docling_cpu_limit }}"
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+

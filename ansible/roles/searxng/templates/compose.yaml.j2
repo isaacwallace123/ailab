@@ -1,0 +1,22 @@
+name: ailab-search
+
+services:
+  searxng:
+    image: docker.io/searxng/searxng:{{ ailab_searxng_version }}
+    environment:
+      FORCE_OWNERSHIP: "false"
+      SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
+    ports:
+      - "127.0.0.1:{{ ailab_searxng_port }}:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+      - {{ ailab_searxng_state_dir }}:/var/cache/searxng
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /run:size=16m,mode=0755
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
