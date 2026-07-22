@@ -74,4 +74,3 @@ class Tools:
         :param source_url: Absolute public HTTP or HTTPS document URL returned by search.
         """
         return json.dumps(self._request("/v1/extract", source_url), indent=2)
-

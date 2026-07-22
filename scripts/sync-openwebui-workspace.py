@@ -267,9 +267,7 @@ def main() -> int:
     parser.add_argument("--assistant-api-base", default="http://127.0.0.1:18088")
     parser.add_argument("--assistant-api-token", default=os.getenv("AILAB_API_TOKEN"))
     parser.add_argument("--research-gateway-api-base", default="http://127.0.0.1:18089")
-    parser.add_argument(
-        "--research-gateway-api-key", default=os.getenv("RESEARCH_GATEWAY_API_KEY")
-    )
+    parser.add_argument("--research-gateway-api-key", default=os.getenv("RESEARCH_GATEWAY_API_KEY"))
     parser.add_argument("--github-token", default=os.getenv("GITHUB_TOKEN"))
     parser.add_argument("--github-repositories", default=os.getenv("AILAB_GITHUB_REPOSITORIES", ""))
     parser.add_argument("--alpaca-api-key-id", default=os.getenv("ALPACA_API_KEY_ID", ""))

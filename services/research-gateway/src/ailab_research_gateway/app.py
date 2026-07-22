@@ -126,9 +126,7 @@ def normalize_search_results(body: dict[str, Any], count: int) -> list[SearchRes
                 snippet=str(item.get("content") or "")[:4000],
                 engines=engines,
                 category=str(item["category"]) if item.get("category") else None,
-                published_at=(
-                    str(item["publishedDate"]) if item.get("publishedDate") else None
-                ),
+                published_at=(str(item["publishedDate"]) if item.get("publishedDate") else None),
                 score=float(score) if isinstance(score, int | float) else None,
             )
         )

@@ -365,9 +365,7 @@ def create_app(
         tags=["memory"],
     )
     def list_memories(
-        x_openwebui_user_id: Annotated[
-            str | None, Header(alias="X-OpenWebUI-User-Id")
-        ] = None,
+        x_openwebui_user_id: Annotated[str | None, Header(alias="X-OpenWebUI-User-Id")] = None,
     ) -> list[MemoryEntry]:
         user_id, _ = _user_identity(x_openwebui_user_id, None)
         return memory_store.list(_require_memory_user(user_id)) if memory_store else []
@@ -380,9 +378,7 @@ def create_app(
     )
     def create_memory(
         request: MemoryCreate,
-        x_openwebui_user_id: Annotated[
-            str | None, Header(alias="X-OpenWebUI-User-Id")
-        ] = None,
+        x_openwebui_user_id: Annotated[str | None, Header(alias="X-OpenWebUI-User-Id")] = None,
     ) -> MemoryEntry:
         if not memory_store:
             raise HTTPException(
@@ -400,14 +396,10 @@ def create_app(
     )
     def delete_memory(
         memory_id: str,
-        x_openwebui_user_id: Annotated[
-            str | None, Header(alias="X-OpenWebUI-User-Id")
-        ] = None,
+        x_openwebui_user_id: Annotated[str | None, Header(alias="X-OpenWebUI-User-Id")] = None,
     ) -> None:
         user_id, _ = _user_identity(x_openwebui_user_id, None)
-        if not memory_store or not memory_store.delete(
-            _require_memory_user(user_id), memory_id
-        ):
+        if not memory_store or not memory_store.delete(_require_memory_user(user_id), memory_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
 
     @app.get(
@@ -627,12 +619,8 @@ def create_app(
     @app.post("/v1/chat/completions", dependencies=protected, tags=["openai-compatible"])
     def openai_chat_completions(
         request: OpenAIChatRequest,
-        x_openwebui_user_id: Annotated[
-            str | None, Header(alias="X-OpenWebUI-User-Id")
-        ] = None,
-        x_openwebui_user_name: Annotated[
-            str | None, Header(alias="X-OpenWebUI-User-Name")
-        ] = None,
+        x_openwebui_user_id: Annotated[str | None, Header(alias="X-OpenWebUI-User-Id")] = None,
+        x_openwebui_user_name: Annotated[str | None, Header(alias="X-OpenWebUI-User-Name")] = None,
     ):
         user_id, display_name = _user_identity(x_openwebui_user_id, x_openwebui_user_name)
         request_profile = _profile_for_user(profile, display_name)
@@ -715,9 +703,7 @@ def create_app(
                 )
                 content = f"Got it — I’ll remember: {saved.content}\n\nMemory ID: `{saved.id}`"
             elif _LIST_MEMORY_PATTERN.search(question):
-                memories = (
-                    memory_store.list(_require_memory_user(user_id)) if memory_store else []
-                )
+                memories = memory_store.list(_require_memory_user(user_id)) if memory_store else []
                 if memories:
                     content = "Here’s what you explicitly asked me to remember:\n\n" + "\n".join(
                         f"- **{item.kind}**: {item.content} (`{item.id}`)" for item in memories

@@ -169,9 +169,7 @@ class Tools:
 
         :param source_url: Absolute public HTTP or HTTPS result URL.
         """
-        return json.dumps(
-            self._post("/v1/fetch", {"url": self._source_url(source_url)}), indent=2
-        )
+        return json.dumps(self._post("/v1/fetch", {"url": self._source_url(source_url)}), indent=2)
 
     def extract_finance_document(self, source_url: str) -> str:
         """Safely fetch and OCR/extract a public filing, report, table, image, or PDF.
